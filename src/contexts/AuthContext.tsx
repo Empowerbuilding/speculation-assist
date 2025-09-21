@@ -42,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   const hasProcessedAuthRef = useRef(false)
+  const lastProcessedSessionRef = useRef<string | null>(null)
   
   const supabase = createClient()
 
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       clearStoredAuthData()
+      lastProcessedSessionRef.current = null
       await supabase.auth.signOut()
       setUser(null)
       setProfile(null)
@@ -89,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error signing out:', error)
       // Clear stored data even if signOut fails
       clearStoredAuthData()
+      lastProcessedSessionRef.current = null
       setUser(null)
       setProfile(null)
       setSession(null)
@@ -142,6 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (session?.user) {
           hasProcessedAuthRef.current = true
+          // Track this session to prevent duplicate processing
+          if (session.access_token) {
+            lastProcessedSessionRef.current = session.access_token
+          }
           const userProfile = await fetchUserProfile(session.user.id)
           // Only set session/user if profile exists
           if (userProfile) {
@@ -193,11 +200,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
         
-        // If we're already initialized and this is a SIGNED_IN event, 
-        // check if we already have this user to prevent duplicate processing
-        if (isInitialized && event === 'SIGNED_IN' && session?.user && user?.id === session.user.id) {
-          console.log('Ignoring duplicate SIGNED_IN event for same user')
-          return
+        // Prevent duplicate processing of the same session
+        if (event === 'SIGNED_IN' && session?.access_token) {
+          if (lastProcessedSessionRef.current === session.access_token) {
+            console.log('Ignoring duplicate SIGNED_IN event for same session token')
+            return
+          }
+          lastProcessedSessionRef.current = session.access_token
         }
         
         try {
@@ -224,6 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else if (event === 'SIGNED_OUT') {
             // Clear state on sign out
             clearStoredAuthData()
+            lastProcessedSessionRef.current = null
             setSession(null)
             setUser(null)
             setProfile(null)
