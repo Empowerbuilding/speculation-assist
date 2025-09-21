@@ -190,8 +190,12 @@ export default function Home() {
           
           {tradingIdeas.length > 0 ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {tradingIdeas.map((idea) => (
-                <div key={idea.id} className="bg-gray-800/30 border border-gray-700 rounded-xl p-6 backdrop-blur-sm" style={{backgroundColor: 'rgba(42, 42, 42, 0.3)', borderColor: 'rgba(42, 42, 42, 0.5)'}}>
+              {tradingIdeas.slice(0, 3).map((idea) => (
+                <div 
+                  key={idea.id} 
+                  className="bg-gray-800/30 border border-gray-700 rounded-xl p-6 backdrop-blur-sm hover:bg-gray-800/40 hover:border-gray-600 transition-all duration-200 cursor-pointer" 
+                  style={{backgroundColor: 'rgba(42, 42, 42, 0.3)', borderColor: 'rgba(42, 42, 42, 0.5)'}}
+                >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-2">
                       <BarChart3 className="h-5 w-5 text-green-400" />
@@ -203,37 +207,42 @@ export default function Home() {
                   </div>
                   
                   <div className="mb-4">
-                    <div className="flex justify-between items-start mb-3">
-                      <span className="text-slate-400 text-sm font-medium">Tickers</span>
-                      <div className="flex flex-wrap gap-1 justify-end">
-                        {idea.tickers.split(',').map((ticker, index) => (
-                          <span key={index} className="px-2 py-1 bg-slate-700/50 text-white text-xs rounded font-mono">
-                            {ticker.trim()}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-sm">Created</span>
-                      <span className="text-slate-300 text-xs">
-                        {new Date(idea.created_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {idea.tickers.split(',').map((ticker, index) => (
+                        <span 
+                          key={index} 
+                          className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded font-mono border border-blue-500/30"
+                        >
+                          {ticker.trim()}
+                        </span>
+                      ))}
                     </div>
                   </div>
                   
-                  <p className="text-slate-300 text-sm leading-relaxed">{idea.analysis}</p>
+                  <p className="text-slate-300 text-sm leading-relaxed mb-4">{idea.analysis}</p>
+                  
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-700/50">
+                    <span className="text-slate-400 text-xs">
+                      {new Date(idea.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                    <div className="flex items-center space-x-1 text-green-400">
+                      <Clock className="h-3 w-3" />
+                      <span className="text-xs font-medium">Live</span>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-12 text-center backdrop-blur-sm" style={{backgroundColor: 'rgba(42, 42, 42, 0.3)', borderColor: 'rgba(42, 42, 42, 0.5)'}}>
-              <Brain className="h-12 w-12 text-slate-500 mx-auto mb-4" />
-              <p className="text-slate-400">Loading latest market analysis...</p>
+              <BarChart3 className="h-12 w-12 text-slate-500 mx-auto mb-4" />
+              <p className="text-slate-400">No trading ideas available at the moment.</p>
+              <p className="text-slate-500 text-sm mt-2">Check back tomorrow for fresh market analysis.</p>
             </div>
           )}
         </div>
