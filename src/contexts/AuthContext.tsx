@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { createClient, clearStoredAuthData, clearStaleSessionsOnServerRestart } from '@/lib/supabase-client'
 
@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
+  const hasProcessedAuthRef = useRef(false)
   
   const supabase = createClient()
 
@@ -107,13 +108,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Only set timeout if not already initialized (prevents timeout during auth state changes)
       if (!isInitialized) {
         timeoutId = setTimeout(() => {
-          console.warn('Session loading timeout - clearing auth state')
-          clearStoredAuthData()
-          setSession(null)
-          setUser(null)
-          setProfile(null)
-          setLoading(false)
-          setIsInitialized(true)
+          // Only clear auth state if we haven't processed any authentication yet
+          if (!hasProcessedAuthRef.current) {
+            console.warn('Session loading timeout - clearing auth state')
+            clearStoredAuthData()
+            setSession(null)
+            setUser(null)
+            setProfile(null)
+            setLoading(false)
+            setIsInitialized(true)
+          }
         }, 10000) // 10 second timeout
       }
 
@@ -137,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         if (session?.user) {
+          hasProcessedAuthRef.current = true
           const userProfile = await fetchUserProfile(session.user.id)
           // Only set session/user if profile exists
           if (userProfile) {
@@ -150,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setProfile(null)
           }
         } else {
+          hasProcessedAuthRef.current = true
           setSession(null)
           setUser(null)
           setProfile(null)
@@ -190,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           if (event === 'SIGNED_IN' && session?.user) {
             setLoading(true)
+            hasProcessedAuthRef.current = true
             const userProfile = await fetchUserProfile(session.user.id)
             // Only set session/user if profile exists
             if (userProfile) {
