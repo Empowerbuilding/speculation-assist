@@ -29,6 +29,12 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
     setIsLoading(true)
     setMessage('')
 
+    // Add timeout to prevent hanging on login
+    const timeoutId = setTimeout(() => {
+      setIsLoading(false)
+      setMessage('Login timeout - please try again or refresh the page')
+    }, 15000) // 15 second timeout
+
     try {
       if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
@@ -42,6 +48,8 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
             }
           }
         })
+
+        clearTimeout(timeoutId)
 
         if (error) {
           setMessage(error.message)
@@ -57,16 +65,21 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
           password
         })
 
+        clearTimeout(timeoutId)
+
         if (error) {
           setMessage(error.message)
         } else {
           setMessage('Signed in successfully!')
+          // Close modal immediately since auth state will update
           onClose()
         }
       } else if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/auth/reset-password`
         })
+
+        clearTimeout(timeoutId)
 
         if (error) {
           setMessage(error.message)
@@ -75,7 +88,9 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
         }
       }
     } catch (error) {
-      setMessage('An unexpected error occurred.')
+      clearTimeout(timeoutId)
+      console.error('Auth error:', error)
+      setMessage('An unexpected error occurred. Please try again or refresh the page.')
     } finally {
       setIsLoading(false)
     }

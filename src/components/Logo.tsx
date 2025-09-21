@@ -20,9 +20,7 @@ export default function Logo({ size = 'md', showPulse = false, className = '' }:
   
   const sizeConfig = sizeMap[size]
   
-  // Debug log to see what we're getting
-  console.log('Logo URL from config:', LOGO_URL)
-  console.log('Final Logo URL:', logoUrl)
+  // Debug logs removed for production
 
   return (
     <div className={`relative ${className}`}>

@@ -36,9 +36,17 @@ export async function middleware(request: NextRequest) {
     })
 
     // This will refresh session if expired - required for Server Components
-    await supabase.auth.getUser()
+    const { error } = await supabase.auth.getUser()
+    
+    // If there's an auth error, just continue without logging
+    if (error && !error.message.includes('session_not_found')) {
+      console.error('Middleware auth error:', error.message)
+    }
   } catch (error) {
-    console.error('Middleware Supabase error:', error)
+    // Silently handle auth errors to prevent console spam
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Middleware error:', error)
+    }
   }
 
   return response

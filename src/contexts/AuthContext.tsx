@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase-client'
+import { createClient, clearStoredAuthData, clearStaleSessionsOnServerRestart } from '@/lib/supabase-client'
 
 interface UserProfile {
   id: string
@@ -40,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isInitialized, setIsInitialized] = useState(false)
   
   const supabase = createClient()
 
@@ -78,22 +79,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     setLoading(true)
     try {
+      clearStoredAuthData()
       await supabase.auth.signOut()
       setUser(null)
       setProfile(null)
       setSession(null)
     } catch (error) {
       console.error('Error signing out:', error)
+      // Clear stored data even if signOut fails
+      clearStoredAuthData()
+      setUser(null)
+      setProfile(null)
+      setSession(null)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    // Get initial session
+    // Clear stale sessions on potential server restart
+    clearStaleSessionsOnServerRestart()
+    
+    // Get initial session with timeout to prevent hanging
     const getInitialSession = async () => {
+      let timeoutId: NodeJS.Timeout | null = null
+      
+      // Only set timeout if not already initialized (prevents timeout during auth state changes)
+      if (!isInitialized) {
+        timeoutId = setTimeout(() => {
+          console.warn('Session loading timeout - clearing auth state')
+          clearStoredAuthData()
+          setSession(null)
+          setUser(null)
+          setProfile(null)
+          setLoading(false)
+          setIsInitialized(true)
+        }, 10000) // 10 second timeout
+      }
+
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        // Clear timeout if we get a response
+        if (timeoutId) clearTimeout(timeoutId)
+        
+        // If there's an auth error, clear everything and continue
+        if (error) {
+          console.error('Session error:', error)
+          // Clear any invalid session data from storage
+          clearStoredAuthData()
+          await supabase.auth.signOut()
+          setSession(null)
+          setUser(null)
+          setProfile(null)
+          setIsInitialized(true)
+          return
+        }
         
         if (session?.user) {
           const userProfile = await fetchUserProfile(session.user.id)
@@ -114,37 +155,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null)
         }
       } catch (error) {
+        if (timeoutId) clearTimeout(timeoutId)
         console.error('Error getting initial session:', error)
+        // Clear everything on error including stored data
+        clearStoredAuthData()
+        try {
+          await supabase.auth.signOut()
+        } catch (signOutError) {
+          console.error('Error during signOut:', signOutError)
+        }
+        setSession(null)
+        setUser(null)
+        setProfile(null)
       } finally {
         setLoading(false)
+        setIsInitialized(true)
       }
     }
 
     getInitialSession()
 
-    // Listen for auth changes
+    // Listen for auth changes with improved error handling
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const userProfile = await fetchUserProfile(session.user.id)
-          // Only set session/user if profile exists
-          if (userProfile) {
-            setSession(session)
-            setUser(session.user)
-            setProfile(userProfile)
-          } else {
-            // Profile doesn't exist, clear everything
+        console.log('Auth state change:', event, session?.user?.id || 'no user')
+        
+        // Don't process auth state changes until initial session is loaded, 
+        // EXCEPT for SIGNED_IN events which should always be processed immediately
+        if (!isInitialized && event !== 'SIGNED_IN') {
+          console.log('Ignoring auth state change - not initialized yet')
+          return
+        }
+        
+        try {
+          if (event === 'SIGNED_IN' && session?.user) {
+            setLoading(true)
+            const userProfile = await fetchUserProfile(session.user.id)
+            // Only set session/user if profile exists
+            if (userProfile) {
+              setSession(session)
+              setUser(session.user)
+              setProfile(userProfile)
+            } else {
+              // Profile doesn't exist, clear everything
+              console.warn('User profile not found for authenticated user')
+              setSession(null)
+              setUser(null)
+              setProfile(null)
+            }
+            // Mark as initialized if this was processed during initialization
+            if (!isInitialized) {
+              setIsInitialized(true)
+            }
+          } else if (event === 'SIGNED_OUT') {
+            // Clear state on sign out
+            clearStoredAuthData()
             setSession(null)
             setUser(null)
             setProfile(null)
+          } else if (event === 'TOKEN_REFRESHED') {
+            // Keep existing state on token refresh, just update session
+            if (session) {
+              setSession(session)
+            }
           }
-        } else if (event === 'SIGNED_OUT') {
+        } catch (error) {
+          console.error('Auth state change error:', error)
+          // On any error, clear the state and stored data
+          clearStoredAuthData()
           setSession(null)
           setUser(null)
           setProfile(null)
+        } finally {
+          setLoading(false)
         }
-
-        setLoading(false)
       }
     )
 
