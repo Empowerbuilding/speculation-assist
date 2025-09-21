@@ -184,12 +184,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth changes with improved error handling
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state change:', event, session?.user?.id || 'no user')
+        console.log('Auth state change:', event, session?.user?.id || 'no user', 'initialized:', isInitialized)
         
         // Don't process auth state changes until initial session is loaded, 
         // EXCEPT for SIGNED_IN events which should always be processed immediately
         if (!isInitialized && event !== 'SIGNED_IN') {
           console.log('Ignoring auth state change - not initialized yet')
+          return
+        }
+        
+        // If we're already initialized and this is a SIGNED_IN event, 
+        // check if we already have this user to prevent duplicate processing
+        if (isInitialized && event === 'SIGNED_IN' && session?.user && user?.id === session.user.id) {
+          console.log('Ignoring duplicate SIGNED_IN event for same user')
           return
         }
         
