@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { createClient, clearStoredAuthData, clearStaleSessionsOnServerRestart } from '@/lib/supabase-client'
+import { useRouter } from 'next/navigation'
 
 interface UserProfile {
   id: string
@@ -43,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false)
   
   const supabase = createClient()
+  const router = useRouter()
 
   const fetchUserProfile = async (userId: string) => {
     console.log('🔍 Fetching profile for user ID:', userId)
@@ -79,21 +81,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    console.log('🚪 SignOut function called')
     setLoading(true)
     try {
+      console.log('🧹 Clearing stored auth data')
       clearStoredAuthData()
-      await supabase.auth.signOut()
+      
+      console.log('📤 Calling supabase.auth.signOut()')
+      const { error } = await supabase.auth.signOut()
+      
+      if (error) {
+        console.error('❌ Supabase signOut error:', error)
+      } else {
+        console.log('✅ Supabase signOut successful')
+      }
+      
+      console.log('🔄 Clearing state variables')
       setUser(null)
       setProfile(null)
       setSession(null)
+      
+      console.log('🏠 Redirecting to landing page')
+      router.push('/')
     } catch (error) {
-      console.error('Error signing out:', error)
+      console.error('💥 Exception during sign out:', error)
       // Clear stored data even if signOut fails
       clearStoredAuthData()
       setUser(null)
       setProfile(null)
       setSession(null)
+      // Still redirect to landing page even if there was an error
+      router.push('/')
     } finally {
+      console.log('🏁 SignOut process completed')
       setLoading(false)
     }
   }
@@ -200,6 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(null)
             setUser(null)
             setProfile(null)
+            // Redirect to landing page on sign out
+            router.push('/')
           } else if (event === 'TOKEN_REFRESHED' && session) {
             setSession(session)
           }

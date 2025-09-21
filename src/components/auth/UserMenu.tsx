@@ -102,10 +102,16 @@ export function UserMenu() {
                 Notifications (Coming Soon)
               </button>
               <button
-                onClick={() => {
-                  console.log('Signing out...')
-                  signOut()
+                onClick={async () => {
+                  console.log('🖱️ Sign out button clicked')
                   setIsOpen(false)
+                  try {
+                    console.log('📞 Calling signOut function')
+                    await signOut()
+                    console.log('✅ SignOut function completed')
+                  } catch (error) {
+                    console.error('❌ Error in signOut call:', error)
+                  }
                 }}
                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
               >
