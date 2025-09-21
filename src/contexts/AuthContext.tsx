@@ -53,6 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Error fetching user profile:', error)
+        // If user profile doesn't exist, sign out the user
+        if (error.code === 'PGRST116') { // No rows returned
+          console.log('User profile not found, signing out...')
+          await supabase.auth.signOut()
+        }
         return null
       }
 
@@ -89,12 +94,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const getInitialSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        setSession(session)
-        setUser(session?.user ?? null)
-
+        
         if (session?.user) {
           const userProfile = await fetchUserProfile(session.user.id)
-          setProfile(userProfile)
+          // Only set session/user if profile exists
+          if (userProfile) {
+            setSession(session)
+            setUser(session.user)
+            setProfile(userProfile)
+          } else {
+            // Profile doesn't exist, clear everything
+            setSession(null)
+            setUser(null)
+            setProfile(null)
+          }
+        } else {
+          setSession(null)
+          setUser(null)
+          setProfile(null)
         }
       } catch (error) {
         console.error('Error getting initial session:', error)
@@ -108,13 +125,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setSession(session)
-        setUser(session?.user ?? null)
-
         if (event === 'SIGNED_IN' && session?.user) {
           const userProfile = await fetchUserProfile(session.user.id)
-          setProfile(userProfile)
+          // Only set session/user if profile exists
+          if (userProfile) {
+            setSession(session)
+            setUser(session.user)
+            setProfile(userProfile)
+          } else {
+            // Profile doesn't exist, clear everything
+            setSession(null)
+            setUser(null)
+            setProfile(null)
+          }
         } else if (event === 'SIGNED_OUT') {
+          setSession(null)
+          setUser(null)
           setProfile(null)
         }
 
