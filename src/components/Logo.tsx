@@ -16,7 +16,7 @@ export default function Logo({ size = 'md', showPulse = false, className = '' }:
   }
 
   // Use the logo URL from config
-  const logoUrl = LOGO_URL || "https://ovwmwqiklprhdwuiypax.supabase.co/storage/v1/object/public/website/Gemini_Generated_Image_5smf4k5smf4k5smf.svg"
+  const logoUrl = LOGO_URL || "https://ovwmwqiklprhdwuiypax.supabase.co/storage/v1/object/public/website/Adobe%20Express%20-%20file.png"
   
   const sizeConfig = sizeMap[size]
   

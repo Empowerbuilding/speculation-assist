@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { UserMenu } from '@/components/auth/UserMenu'
 import AuthModal from '@/components/auth/AuthModal'
 import Logo from '@/components/Logo'
+import Footer from '@/components/Footer'
 import TradingIdeasPreview from '@/components/TradingIdeasPreview'
 import { howItWorksIcons } from '@/config/icons'
 
@@ -58,7 +59,7 @@ export default function Home() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <Logo size="md" showPulse={true} />
+              <Logo size="md" />
               <h1 className="text-2xl font-bold text-gray-900">SpeculationAssist</h1>
             </div>
             
@@ -229,33 +230,6 @@ export default function Home() {
         {/* Trading Ideas Preview Section */}
         <TradingIdeasPreview />
 
-        {/* Features Section */}
-        <div className="bg-gradient-to-r from-green-50 to-red-50 border border-green-200 rounded-3xl p-12 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6">
-            Ready to Start Trading Smarter?
-          </h2>
-          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Join thousands of traders who rely on our AI-powered insights for better trading decisions.
-          </p>
-          
-          {user ? (
-            <button 
-              onClick={() => window.location.href = '/dashboard'}
-              className="bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 inline-flex items-center"
-            >
-              View Your Dashboard
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </button>
-          ) : (
-            <button 
-              onClick={() => openAuthModal('signup')}
-              className="bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 inline-flex items-center"
-            >
-              Create Free Account
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </button>
-          )}
-        </div>
       </main>
 
       {/* Auth Modal */}
@@ -264,6 +238,9 @@ export default function Home() {
         onClose={() => setShowAuthModal(false)}
         defaultMode={authModalMode}
       />
+      
+      {/* Footer */}
+      <Footer />
     </div>
   )
 }
