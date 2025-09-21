@@ -1,51 +1,40 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
+import { AuthProvider } from '@/contexts/AuthContext'
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: "SpeculationAssist - Daily Trading Ideas Powered by AI",
-  description: "Get 3 AI-analyzed trading opportunities delivered every morning. Professional trading insights, market analysis, and investment strategies for informed speculation.",
-  keywords: "trading, AI, stock analysis, investment, trading ideas, market insights",
-  authors: [{ name: "SpeculationAssist" }],
-  creator: "SpeculationAssist",
-  publisher: "SpeculationAssist",
-  formatDetection: {
-    email: false,
-    address: false,
-    telephone: false,
+  title: 'SpeculationAssist - AI-Powered Trading Ideas',
+  description: 'Get 3 AI-analyzed trading opportunities delivered every morning. Join thousands of traders using our advanced algorithms.',
+  keywords: 'trading, AI, stock analysis, trading ideas, market insights, financial analysis',
+  authors: [{ name: 'SpeculationAssist' }],
+  openGraph: {
+    title: 'SpeculationAssist - AI-Powered Trading Ideas',
+    description: 'Get 3 AI-analyzed trading opportunities delivered every morning.',
+    type: 'website',
+    locale: 'en_US',
   },
-  icons: {
-    icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico", sizes: "any" }
-    ],
-    shortcut: "/favicon.ico",
-    apple: "/favicon.ico",
+  twitter: {
+    card: 'summary_large_image',
+    title: 'SpeculationAssist - AI-Powered Trading Ideas',
+    description: 'Get 3 AI-analyzed trading opportunities delivered every morning.',
   },
-};
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+      <body className={inter.className}>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
-  );
+  )
 }
