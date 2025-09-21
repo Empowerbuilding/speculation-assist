@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Brain, Mail, ArrowRight, TrendingUp, Zap, Shield } from 'lucide-react'
+import { Brain, Mail, ArrowRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { UserMenu } from '@/components/auth/UserMenu'
 import AuthModal from '@/components/auth/AuthModal'
 import Logo from '@/components/Logo'
+import TradingIdeasPreview from '@/components/TradingIdeasPreview'
+import { howItWorksIcons } from '@/config/icons'
 
 export default function Home() {
   const { user } = useAuth()
@@ -113,43 +115,37 @@ export default function Home() {
                 <p className="text-gray-600 mb-4">
                   Ready to explore today's trading opportunities?
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button 
-                    onClick={() => window.location.href = '/dashboard'}
-                    className="flex-1 bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center"
-                  >
-                    Go to Dashboard
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </button>
-                  <button 
-                    onClick={() => window.location.href = '/ideas'}
-                    className="flex-1 border border-gray-300 hover:border-gray-400 text-gray-700 px-6 py-3 rounded-lg font-medium transition-colors"
-                  >
-                    View Ideas
-                  </button>
-                </div>
+                <button 
+                  onClick={() => window.location.href = '/dashboard'}
+                  className="bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 inline-flex items-center"
+                >
+                  View Dashboard
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </button>
               </div>
             </div>
           ) : (
             <div className="max-w-md mx-auto mb-8">
-              <form onSubmit={handleEmailSubmit} className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <input 
-                    type="email" 
+              <form onSubmit={handleEmailSubmit} className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <input
+                    type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter your email address" 
+                    placeholder="Enter your email address"
                     required
-                    className="w-full pl-10 pr-4 py-4 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-500/20"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
-                <button 
+                
+                <button
                   type="submit"
                   disabled={isLoading}
-                  className="bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 disabled:opacity-50 text-white px-8 py-4 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center"
+                  className="bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-200 whitespace-nowrap inline-flex items-center"
                 >
-                  {isLoading ? 'Subscribing...' : (
+                  {isLoading ? (
+                    'Subscribing...'
+                  ) : (
                     <>
                       Get Started Free
                       <ArrowRight className="ml-2 h-4 w-4" />
@@ -188,7 +184,11 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="bg-gradient-to-br from-green-50 to-gray-50 border border-green-200 rounded-2xl p-8 mb-6 hover:shadow-md transition-shadow">
-                <TrendingUp className="h-12 w-12 mx-auto mb-4 text-green-600" />
+                <img 
+                  src={howItWorksIcons.aiAnalysis} 
+                  alt="AI Analysis" 
+                  className="h-12 w-12 mx-auto mb-4 object-contain"
+                />
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">AI Analysis</h3>
                 <p className="text-gray-600">
                   Our AI scans market data, news, and technical indicators to identify high-probability trading setups.
@@ -198,7 +198,11 @@ export default function Home() {
             
             <div className="text-center">
               <div className="bg-gradient-to-br from-red-50 to-gray-50 border border-red-200 rounded-2xl p-8 mb-6 hover:shadow-md transition-shadow">
-                <Zap className="h-12 w-12 mx-auto mb-4 text-red-600" />
+                <img 
+                  src={howItWorksIcons.dailyIdeas} 
+                  alt="3 Daily Ideas" 
+                  className="h-12 w-12 mx-auto mb-4 object-contain"
+                />
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">3 Daily Ideas</h3>
                 <p className="text-gray-600">
                   Receive exactly 3 curated trading opportunities each morning with entry points and risk management.
@@ -208,7 +212,11 @@ export default function Home() {
             
             <div className="text-center">
               <div className="bg-gradient-to-br from-blue-50 to-gray-50 border border-blue-200 rounded-2xl p-8 mb-6 hover:shadow-md transition-shadow">
-                <Shield className="h-12 w-12 mx-auto mb-4 text-blue-600" />
+                <img 
+                  src={howItWorksIcons.trackLearn} 
+                  alt="Track & Learn" 
+                  className="h-12 w-12 mx-auto mb-4 object-contain"
+                />
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">Track & Learn</h3>
                 <p className="text-gray-600">
                   Monitor your performance, save favorite strategies, and learn from detailed market analysis.
@@ -217,6 +225,9 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Trading Ideas Preview Section */}
+        <TradingIdeasPreview />
 
         {/* Features Section */}
         <div className="bg-gradient-to-r from-green-50 to-red-50 border border-green-200 rounded-3xl p-12 text-center">
