@@ -22,18 +22,22 @@ function parseCombinedIdeas(combinedData: any): TradingIdea[] {
   // Split analysis by "---" separator
   const analysisParts = analysis.split('---')
   
-  // Split tickers by "---" separator
+  // Split tickers by "---" separator  
   const tickerGroups = tickers.split('---')
   
   const parsedIdeas: TradingIdea[] = []
   
   analysisParts.forEach((part: string, index: number) => {
     const trimmedPart = part.trim()
-    if (!trimmedPart) return
+    if (!trimmedPart) {
+      return
+    }
     
     // Extract theme from "IDEA X - [theme]" pattern
     const themeMatch = trimmedPart.match(/^IDEA\s+\d+\s*-\s*(.+?)$/m)
-    if (!themeMatch) return
+    if (!themeMatch) {
+      return
+    }
     
     const theme = themeMatch[1].trim()
     
@@ -51,17 +55,20 @@ function parseCombinedIdeas(combinedData: any): TradingIdea[] {
     
     const analysisContent = analysisLines.join('\n').trim()
     
-    // Get corresponding ticker group
-    const tickerGroup = tickerGroups[index]?.trim() || ''
+    // Get corresponding ticker group and clean it up
+    let tickerGroup = tickerGroups[index]?.trim() || ''
+    // Remove leading comma and extra whitespace/newlines
+    tickerGroup = tickerGroup.replace(/^,\s*/, '').replace(/\s+/g, ' ').trim()
     
     if (theme && analysisContent) {
-      parsedIdeas.push({
+      const newIdea = {
         id: id + index, // Create unique IDs
         created_at,
         theme,
         analysis: analysisContent,
         tickers: tickerGroup
-      })
+      }
+      parsedIdeas.push(newIdea)
     }
   })
   
@@ -69,6 +76,7 @@ function parseCombinedIdeas(combinedData: any): TradingIdea[] {
 }
 
 export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
+  
   try {
     let ideas: any[] | null = null
 
@@ -81,6 +89,10 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
         .select('id, created_at, theme, analysis, tickers')
         .order('created_at', { ascending: false })
         .limit(10)
+      
+      if (error) {
+        console.error('Supabase error:', error)
+      }
       
       if (!error && data) {
         ideas = data
@@ -146,7 +158,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
 
     // Limit final result to 3 ideas for display
     const finalIdeas = processedIdeas.slice(0, 3)
-
+    
     return NextResponse.json({ data: finalIdeas })
   } catch (error) {
     console.error('Error fetching trading ideas:', error)
