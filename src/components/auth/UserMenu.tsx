@@ -9,7 +9,9 @@ export function UserMenu() {
   const { user, profile, signOut } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
 
-  if (!user || !profile) return null
+  console.log('UserMenu - User:', user?.id, 'Profile:', profile?.id)
+
+  if (!user) return null
 
   return (
     <div className="relative">
@@ -17,7 +19,7 @@ export function UserMenu() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center space-x-2 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
       >
-        {profile.avatar_url ? (
+        {profile?.avatar_url ? (
           <img 
             src={profile.avatar_url} 
             alt={profile.display_name || profile.email}
@@ -29,7 +31,7 @@ export function UserMenu() {
           </div>
         )}
         <span className="text-sm font-medium text-gray-700">
-          {profile.display_name || profile.first_name || profile.email}
+          {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}
         </span>
         <ChevronDown className="h-4 w-4 text-gray-500" />
       </button>
@@ -38,23 +40,26 @@ export function UserMenu() {
         <>
           <div 
             className="fixed inset-0 z-10" 
-            onClick={() => setIsOpen(false)}
+            onClick={() => {
+              console.log('Backdrop clicked, closing dropdown')
+              setIsOpen(false)
+            }}
           />
           <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
             <div className="p-4 border-b border-gray-200">
               <p className="text-sm font-medium text-gray-900">
-                {profile.display_name || `${profile.first_name} ${profile.last_name}`.trim()}
+                {profile?.display_name || (profile?.first_name && profile?.last_name ? `${profile.first_name} ${profile.last_name}`.trim() : null) || user.user_metadata?.first_name || user.email}
               </p>
-              <p className="text-sm text-gray-500">{profile.email}</p>
+              <p className="text-sm text-gray-500">{profile?.email || user.email}</p>
               <div className="mt-2">
                 <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-                  profile.subscription_status === 'premium' 
+                  profile?.subscription_status === 'premium' 
                     ? 'bg-green-100 text-green-800' 
-                    : profile.subscription_status === 'trial'
+                    : profile?.subscription_status === 'trial'
                     ? 'bg-yellow-100 text-yellow-800'
                     : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {profile.subscription_status.toUpperCase()}
+                  {profile?.subscription_status?.toUpperCase() || 'FREE'}
                 </span>
               </div>
             </div>
@@ -63,7 +68,10 @@ export function UserMenu() {
               <Link 
                 href="/dashboard"
                 className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  console.log('Navigating to dashboard')
+                  setIsOpen(false)
+                }}
               >
                 <User className="h-4 w-4 mr-3" />
                 Dashboard
@@ -71,29 +79,31 @@ export function UserMenu() {
               <Link 
                 href="/settings"
                 className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  console.log('Navigating to settings')
+                  setIsOpen(false)
+                }}
               >
                 <Settings className="h-4 w-4 mr-3" />
                 Settings
               </Link>
-              <Link 
-                href="/subscription"
-                className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={() => setIsOpen(false)}
+              <button
+                className="flex items-center w-full px-4 py-2 text-sm text-gray-400 cursor-not-allowed"
+                disabled
               >
                 <CreditCard className="h-4 w-4 mr-3" />
-                Subscription
-              </Link>
-              <Link 
-                href="/notifications"
-                className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={() => setIsOpen(false)}
+                Subscription (Coming Soon)
+              </button>
+              <button
+                className="flex items-center w-full px-4 py-2 text-sm text-gray-400 cursor-not-allowed"
+                disabled
               >
                 <Bell className="h-4 w-4 mr-3" />
-                Notifications
-              </Link>
+                Notifications (Coming Soon)
+              </button>
               <button
                 onClick={() => {
+                  console.log('Signing out...')
                   signOut()
                   setIsOpen(false)
                 }}

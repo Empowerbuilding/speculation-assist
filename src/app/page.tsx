@@ -11,7 +11,9 @@ import TradingIdeasPreview from '@/components/TradingIdeasPreview'
 import { howItWorksIcons } from '@/config/icons'
 
 export default function Home() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  
+  console.log('Home page - User:', user?.id, 'Loading:', loading)
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState('')

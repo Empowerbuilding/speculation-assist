@@ -13,6 +13,8 @@ function SettingsContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState('')
   
+  console.log('Settings - User:', user?.id, 'Profile:', profile?.id)
+  
   // Profile form state
   const [profileData, setProfileData] = useState({
     first_name: '',
@@ -109,7 +111,7 @@ function SettingsContent() {
     { id: 'security', label: 'Security', icon: Shield }
   ]
 
-  if (!profile) return null
+  if (!user) return null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -340,17 +342,17 @@ function SettingsContent() {
                         <p className="text-sm text-gray-500">Your current subscription status</p>
                       </div>
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        profile.subscription_status === 'premium' 
+                        profile?.subscription_status === 'premium' 
                           ? 'bg-green-100 text-green-800' 
-                          : profile.subscription_status === 'trial'
+                          : profile?.subscription_status === 'trial'
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {profile.subscription_status.toUpperCase()}
+                        {profile?.subscription_status?.toUpperCase() || 'FREE'}
                       </span>
                     </div>
                     
-                    {profile.subscription_status === 'free' && (
+                    {profile?.subscription_status === 'free' && (
                       <div>
                         <p className="text-gray-600 mb-4">
                           Upgrade to premium to unlock advanced features and priority support.
@@ -361,9 +363,9 @@ function SettingsContent() {
                       </div>
                     )}
                     
-                    {profile.subscription_expires_at && (
+                    {profile?.subscription_expires_at && (
                       <p className="text-sm text-gray-500">
-                        {profile.subscription_status === 'trial' ? 'Trial expires' : 'Renews'} on{' '}
+                        {profile?.subscription_status === 'trial' ? 'Trial expires' : 'Renews'} on{' '}
                         {new Date(profile.subscription_expires_at).toLocaleDateString()}
                       </p>
                     )}
@@ -390,7 +392,7 @@ function SettingsContent() {
                     <div className="border border-gray-200 rounded-lg p-6">
                       <h3 className="font-medium text-gray-900 mb-2">Account Created</h3>
                       <p className="text-sm text-gray-500">
-                        Your account was created on {new Date(profile.created_at).toLocaleDateString()}
+                        Your account was created on {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'Unknown'}
                       </p>
                     </div>
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { createClient, clearStoredAuthData, clearStaleSessionsOnServerRestart } from '@/lib/supabase-client'
 
@@ -41,12 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
-  const hasProcessedAuthRef = useRef(false)
-  const lastProcessedSessionRef = useRef<string | null>(null)
   
   const supabase = createClient()
 
   const fetchUserProfile = async (userId: string) => {
+    console.log('🔍 Fetching profile for user ID:', userId)
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -54,19 +53,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('id', userId)
         .single()
 
+      console.log('📊 Profile query result:', { data, error })
+
       if (error) {
-        console.error('Error fetching user profile:', error)
-        // If user profile doesn't exist, sign out the user
-        if (error.code === 'PGRST116') { // No rows returned
-          console.log('User profile not found, signing out...')
-          await supabase.auth.signOut()
-        }
+        console.error('❌ Error fetching user profile:', error)
+        console.log('Error code:', error.code, 'Error message:', error.message)
+        // Don't sign out user if profile doesn't exist - they might be new
+        // Just return null and let the app handle it
         return null
       }
 
+      console.log('✅ Profile fetched successfully:', data)
       return data as UserProfile
     } catch (error) {
-      console.error('Error fetching user profile:', error)
+      console.error('💥 Exception fetching user profile:', error)
       return null
     }
   }
@@ -82,7 +82,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       clearStoredAuthData()
-      lastProcessedSessionRef.current = null
       await supabase.auth.signOut()
       setUser(null)
       setProfile(null)
@@ -91,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error signing out:', error)
       // Clear stored data even if signOut fails
       clearStoredAuthData()
-      lastProcessedSessionRef.current = null
       setUser(null)
       setProfile(null)
       setSession(null)
@@ -101,41 +99,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    let isMounted = true
+    let initTimeoutId: NodeJS.Timeout | null = null
+    
     // Clear stale sessions on potential server restart
     clearStaleSessionsOnServerRestart()
     
-    // Get initial session with timeout to prevent hanging
+    // Get initial session
     const getInitialSession = async () => {
-      let timeoutId: NodeJS.Timeout | null = null
-      
-      // Only set timeout if not already initialized (prevents timeout during auth state changes)
-      if (!isInitialized) {
-        timeoutId = setTimeout(() => {
-          // Only clear auth state if we haven't processed any authentication yet
-          if (!hasProcessedAuthRef.current) {
-            console.warn('Session loading timeout - clearing auth state')
-            clearStoredAuthData()
-            setSession(null)
-            setUser(null)
-            setProfile(null)
-            setLoading(false)
-            setIsInitialized(true)
-          }
-        }, 10000) // 10 second timeout
-      }
+      // Set a reasonable timeout
+      initTimeoutId = setTimeout(() => {
+        if (isMounted && !isInitialized) {
+          console.warn('Session loading timeout - proceeding without auth')
+          setLoading(false)
+          setIsInitialized(true)
+        }
+      }, 5000) // Reduced to 5 seconds
 
       try {
         const { data: { session }, error } = await supabase.auth.getSession()
         
         // Clear timeout if we get a response
-        if (timeoutId) clearTimeout(timeoutId)
+        if (initTimeoutId) clearTimeout(initTimeoutId)
         
-        // If there's an auth error, clear everything and continue
+        if (!isMounted) return
+        
+        // If there's an auth error, just proceed without auth
         if (error) {
           console.error('Session error:', error)
-          // Clear any invalid session data from storage
-          clearStoredAuthData()
-          await supabase.auth.signOut()
           setSession(null)
           setUser(null)
           setProfile(null)
@@ -144,119 +135,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         if (session?.user) {
-          hasProcessedAuthRef.current = true
-          // Track this session to prevent duplicate processing
-          if (session.access_token) {
-            lastProcessedSessionRef.current = session.access_token
-          }
+          console.log('🔄 Initial session found - User ID:', session.user.id)
+          setSession(session)
+          setUser(session.user)
+          // Try to fetch profile but don't fail if it doesn't exist
+          console.log('👤 About to fetch profile during initialization for user:', session.user.id)
           const userProfile = await fetchUserProfile(session.user.id)
-          // Only set session/user if profile exists
-          if (userProfile) {
-            setSession(session)
-            setUser(session.user)
-            setProfile(userProfile)
-          } else {
-            // Profile doesn't exist, clear everything
-            setSession(null)
-            setUser(null)
-            setProfile(null)
-          }
+          console.log('👤 Initial profile fetch result:', userProfile)
+          setProfile(userProfile)
         } else {
-          hasProcessedAuthRef.current = true
           setSession(null)
           setUser(null)
           setProfile(null)
         }
       } catch (error) {
-        if (timeoutId) clearTimeout(timeoutId)
+        if (initTimeoutId) clearTimeout(initTimeoutId)
+        if (!isMounted) return
+        
         console.error('Error getting initial session:', error)
-        // Clear everything on error including stored data
-        clearStoredAuthData()
-        try {
-          await supabase.auth.signOut()
-        } catch (signOutError) {
-          console.error('Error during signOut:', signOutError)
-        }
         setSession(null)
         setUser(null)
         setProfile(null)
       } finally {
-        setLoading(false)
-        setIsInitialized(true)
+        if (isMounted) {
+          setLoading(false)
+          setIsInitialized(true)
+        }
       }
     }
 
     getInitialSession()
 
-    // Listen for auth changes with improved error handling
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state change:', event, session?.user?.id || 'no user', 'initialized:', isInitialized)
+        console.log('Auth state change:', event, session?.user?.id || 'no user')
         
-        // Don't process auth state changes until initial session is loaded, 
-        // EXCEPT for SIGNED_IN events which should always be processed immediately
-        if (!isInitialized && event !== 'SIGNED_IN') {
-          console.log('Ignoring auth state change - not initialized yet')
-          return
-        }
-        
-        // Prevent duplicate processing of the same session
-        if (event === 'SIGNED_IN' && session?.access_token) {
-          if (lastProcessedSessionRef.current === session.access_token) {
-            console.log('Ignoring duplicate SIGNED_IN event for same session token')
-            return
-          }
-          lastProcessedSessionRef.current = session.access_token
-        }
+        if (!isMounted) return
         
         try {
           if (event === 'SIGNED_IN' && session?.user) {
+            console.log('🔐 SIGNED_IN event - User ID:', session.user.id)
             setLoading(true)
-            hasProcessedAuthRef.current = true
+            setSession(session)
+            setUser(session.user)
+            
+            // Try to fetch profile but don't fail if it doesn't exist
+            console.log('👤 About to fetch profile for user:', session.user.id)
             const userProfile = await fetchUserProfile(session.user.id)
-            // Only set session/user if profile exists
-            if (userProfile) {
-              setSession(session)
-              setUser(session.user)
-              setProfile(userProfile)
-            } else {
-              // Profile doesn't exist, clear everything
-              console.warn('User profile not found for authenticated user')
-              setSession(null)
-              setUser(null)
-              setProfile(null)
+            console.log('👤 Profile fetch result:', userProfile)
+            setProfile(userProfile)
+            
+            // Clear timeout if this happens during initialization
+            if (initTimeoutId) {
+              clearTimeout(initTimeoutId)
+              initTimeoutId = null
             }
-            // Mark as initialized if this was processed during initialization
+            
             if (!isInitialized) {
               setIsInitialized(true)
             }
           } else if (event === 'SIGNED_OUT') {
-            // Clear state on sign out
             clearStoredAuthData()
-            lastProcessedSessionRef.current = null
             setSession(null)
             setUser(null)
             setProfile(null)
-          } else if (event === 'TOKEN_REFRESHED') {
-            // Keep existing state on token refresh, just update session
-            if (session) {
-              setSession(session)
-            }
+          } else if (event === 'TOKEN_REFRESHED' && session) {
+            setSession(session)
           }
         } catch (error) {
           console.error('Auth state change error:', error)
-          // On any error, clear the state and stored data
-          clearStoredAuthData()
-          setSession(null)
-          setUser(null)
-          setProfile(null)
         } finally {
-          setLoading(false)
+          if (isMounted) {
+            setLoading(false)
+          }
         }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+      if (initTimeoutId) clearTimeout(initTimeoutId)
+    }
   }, [])
 
   const value = {

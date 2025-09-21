@@ -6,9 +6,15 @@ import { UserMenu } from '@/components/auth/UserMenu'
 import { TrendingUp, Users, Eye, Star, Clock } from 'lucide-react'
 
 function DashboardContent() {
-  const { profile } = useAuth()
+  const { user, profile, loading } = useAuth()
 
-  if (!profile) return null
+  console.log('Dashboard - User:', user?.id, 'Profile:', profile?.id, 'Loading:', loading)
+
+  // Show loading while user data is being fetched
+  if (!user) {
+    console.log('Dashboard - No user, returning null')
+    return null
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -19,7 +25,7 @@ function DashboardContent() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-gray-600">
-                Welcome back, {profile.display_name || profile.first_name}!
+                Welcome back, {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}!
               </p>
             </div>
             <UserMenu />
