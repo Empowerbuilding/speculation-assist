@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase-client'
 import { X, Mail, Lock, User, Eye, EyeOff, Loader2 } from 'lucide-react'
 
@@ -21,6 +21,11 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
   const [message, setMessage] = useState('')
 
   const supabase = createClient()
+
+  // Update mode when defaultMode prop changes
+  useEffect(() => {
+    setMode(defaultMode)
+  }, [defaultMode])
 
   if (!isOpen) return null
 

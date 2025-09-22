@@ -15,8 +15,27 @@ import {
   EmptyActivityState,
   useLoadingStates
 } from '@/components/ui/LoadingStates'
-import { TrendingUp, Users, Eye, Star, Clock, ArrowRight, Plus, X, ChevronDown, ChevronUp, Bookmark, BookmarkCheck } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { 
+  TrendingUp, 
+  Users, 
+  Eye, 
+  Star, 
+  Clock, 
+  ArrowRight, 
+  Plus, 
+  X, 
+  ChevronDown, 
+  ChevronUp, 
+  Bookmark, 
+  BookmarkCheck,
+  Send,
+  Menu,
+  MessageCircle,
+  BarChart3,
+  PanelLeftClose,
+  PanelLeftOpen
+} from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
 interface TradingIdea {
@@ -26,6 +45,169 @@ interface TradingIdea {
   analysis: string
   tickers: string
 }
+
+interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
+  typing?: boolean
+}
+
+// Chat state management hook
+function useChatState() {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isTyping, setIsTyping] = useState(false)
+  const [input, setInput] = useState('')
+  const [selectedIdea, setSelectedIdea] = useState<TradingIdea | null>(null)
+
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem('chat-messages')
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages)
+        const messagesWithDates = parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }))
+        setMessages(messagesWithDates)
+      } catch (error) {
+        console.error('Failed to load saved messages:', error)
+      }
+    }
+  }, [])
+
+  // Save messages to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem('chat-messages', JSON.stringify(messages))
+    }
+  }, [messages])
+
+  const addMessage = (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
+    const newMessage: ChatMessage = {
+      ...message,
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      timestamp: new Date()
+    }
+    setMessages(prev => [...prev, newMessage])
+    return newMessage.id
+  }
+
+  const updateMessage = (id: string, updates: Partial<ChatMessage>) => {
+    setMessages(prev => prev.map(msg => msg.id === id ? { ...msg, ...updates } : msg))
+  }
+
+  const sendMessage = async (content: string, watchlistData: string[] = []) => {
+    if (!content.trim()) return
+
+    // Add user message
+    addMessage({ role: 'user', content: content.trim() })
+    setInput('')
+
+    // Show typing indicator
+    setIsTyping(true)
+    const typingId = addMessage({ role: 'assistant', content: '', typing: true })
+
+    try {
+      // Prepare request body with selected idea context
+      const requestBody = {
+        messages: [...messages, { role: 'user' as const, content: content.trim() }],
+        tradingContext: {
+          idea: selectedIdea ? {
+            id: selectedIdea.id,
+            theme: selectedIdea.theme,
+            analysis: selectedIdea.analysis,
+            tickers: selectedIdea.tickers
+          } : undefined,
+          watchlist: watchlistData.length > 0 ? watchlistData : undefined,
+        },
+        maxTokens: 500,
+        temperature: 0.7
+      }
+
+      // Call the OpenAI API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.data?.message?.content) {
+        setIsTyping(false)
+        updateMessage(typingId, {
+          content: result.data.message.content,
+          typing: false
+        })
+      } else {
+        // Handle API errors gracefully
+        setIsTyping(false)
+        updateMessage(typingId, {
+          content: result.error || `I'm sorry, I'm having trouble connecting to my AI service right now. ${selectedIdea ? `However, I can tell you that the trading idea "${selectedIdea.theme}" focuses on ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again later.'}`,
+          typing: false
+        })
+      }
+    } catch (error) {
+      console.error('Failed to send message to AI:', error)
+      // Fallback response
+      setIsTyping(false)
+      updateMessage(typingId, {
+        content: `I'm experiencing connection issues right now. ${selectedIdea ? `In the meantime, you can review the "${selectedIdea.theme}" trading idea which involves ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again in a moment.'}`,
+        typing: false
+      })
+    }
+  }
+
+  const clearMessages = () => {
+    setMessages([])
+    localStorage.removeItem('chat-messages')
+  }
+
+  const selectIdea = (idea: TradingIdea) => {
+    setSelectedIdea(idea)
+    // Clear chat history when selecting a new idea
+    clearMessages()
+    // Add a welcome message for the selected idea
+    setTimeout(() => {
+      addMessage({
+        role: 'assistant',
+        content: `Great! I'm now focused on the "${idea.theme}" trading idea. This idea involves ${idea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}. 
+
+What would you like to know about this trading opportunity? I can help you understand the analysis, discuss the risks, or explore how it might fit into your portfolio.`
+      })
+    }, 100)
+  }
+
+  const clearSelectedIdea = () => {
+    setSelectedIdea(null)
+    clearMessages()
+    // Add a general welcome message
+    setTimeout(() => {
+      addMessage({
+        role: 'assistant',
+        content: `I'm back to general trading assistance mode! Feel free to ask me about market trends, your watchlist, or select a specific trading idea to discuss in detail.`
+      })
+    }, 100)
+  }
+
+  return {
+    messages,
+    isTyping,
+    input,
+    setInput,
+    sendMessage,
+    clearMessages,
+    selectedIdea,
+    selectIdea,
+    clearSelectedIdea
+  }
+}
+
 
 function DashboardContent() {
   const { user, profile, loading } = useAuth()
@@ -40,6 +222,18 @@ function DashboardContent() {
   const [savedIdeas, setSavedIdeas] = useState<number[]>([])
   const [savingIdea, setSavingIdea] = useState<number | null>(null)
   const [savedIdeasCount, setSavedIdeasCount] = useState(0)
+  
+  // Chat and sidebar state
+  const chat = useChatState()
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activePanel, setActivePanel] = useState<'stats' | 'ideas' | 'watchlist' | 'activity' | null>('stats')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Auto-scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chat.messages])
 
   console.log('Dashboard - User:', user?.id, 'Profile:', profile?.id, 'Loading:', loading)
 
@@ -76,9 +270,9 @@ function DashboardContent() {
       if (response.ok && result.data && result.data.length > 0) {
         // Get all tickers from all watchlists
         const allTickers = result.data.reduce((acc: string[], watchlist: any) => {
-          return [...acc, ...watchlist.tickers]
-        }, [])
-        setWatchlist([...new Set(allTickers)]) // Remove duplicates
+          return [...acc, ...(watchlist.tickers as string[])]
+        }, [] as string[])
+        setWatchlist(Array.from(new Set(allTickers))) // Remove duplicates
       } else if (!response.ok) {
         setWatchlistError(result.error || 'Failed to fetch watchlist')
       }
@@ -125,6 +319,10 @@ function DashboardContent() {
     if (diffHours === 1) return '1 hour ago'
     if (diffHours < 24) return `${diffHours} hours ago`
     return date.toLocaleDateString()
+  }
+
+  const formatChatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
   const addToWatchlist = async (ticker: string) => {
@@ -217,6 +415,17 @@ function DashboardContent() {
     }
   }
 
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (chat.input.trim()) {
+      chat.sendMessage(chat.input.trim(), watchlist)
+    }
+  }
+
+  const togglePanel = (panel: typeof activePanel) => {
+    setActivePanel(activePanel === panel ? null : panel)
+  }
+
   // Show loading while user data is being fetched
   if (!user) {
     console.log('Dashboard - No user, returning null')
@@ -224,289 +433,508 @@ function DashboardContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex">
       {/* Network Status */}
       <NetworkStatus />
       
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-gray-600">
-                Welcome back, {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}!
-              </p>
-            </div>
-            <UserMenu />
+      {/* Sidebar */}
+      <div className={`${sidebarOpen ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden bg-white border-r border-gray-200 flex flex-col`}>
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-blue-600" />
+            <h2 className="font-semibold text-gray-900">Trading Hub</h2>
           </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats Cards */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          {isLoading('savedIdeas') || isLoading('watchlist') ? (
-            <>
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-            </>
-          ) : (
-            <>
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Ideas Viewed</p>
-                    <p className="text-2xl font-bold text-gray-900">0</p>
-                  </div>
-                  <Eye className="h-8 w-8 text-blue-500" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Ideas Saved</p>
-                    <p className="text-2xl font-bold text-gray-900">{savedIdeasCount}</p>
-                  </div>
-                  <Star className="h-8 w-8 text-yellow-500" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Watchlist Items</p>
-                    <p className="text-2xl font-bold text-gray-900">{watchlist.length}</p>
-                  </div>
-                  <TrendingUp className="h-8 w-8 text-green-500" />
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Days Active</p>
-                    <p className="text-2xl font-bold text-gray-900">1</p>
-                  </div>
-                  <Clock className="h-8 w-8 text-purple-500" />
-                </div>
-              </div>
-            </>
-          )}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="p-1 hover:bg-gray-100 rounded-md transition-colors lg:hidden"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
         </div>
 
-        {/* Watchlist Message */}
-        {watchlistMessage && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-green-800 text-sm">{watchlistMessage}</p>
-          </div>
-        )}
-
-        {/* Today's Ideas Section */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Today's Ideas</h2>
-            <Link 
-              href="/ideas"
-              className="text-blue-600 hover:text-blue-700 font-medium inline-flex items-center transition-colors"
+        {/* Sidebar Content */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Stats Panel */}
+          <div className="border-b border-gray-200">
+            <button
+              onClick={() => togglePanel('stats')}
+              className="w-full p-4 text-left hover:bg-gray-50 flex items-center justify-between"
             >
-              View All
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Link>
-          </div>
-
-          {isLoading('ideas') ? (
-            <div className="grid md:grid-cols-3 gap-6">
-              {[1, 2, 3].map((i) => (
-                <CardSkeleton key={i} />
-              ))}
-            </div>
-          ) : ideasError ? (
-            <ErrorState
-              title="Failed to load trading ideas"
-              message={ideasError}
-              onRetry={fetchIdeas}
-              retryLabel="Retry"
-            />
-          ) : ideas.length === 0 ? (
-            <EmptyIdeasState onRefresh={fetchIdeas} />
-          ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              {ideas.map((idea) => {
-                const isExpanded = expandedIdea === idea.id
-                return (
-                  <div key={idea.id} className="bg-white rounded-xl p-6 border border-gray-200 hover:shadow-lg transition-all duration-200">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center text-sm text-gray-500">
-                        <Clock className="h-4 w-4 mr-1" />
-                        {formatTime(idea.created_at)}
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-gray-600" />
+                <span className="font-medium">Overview</span>
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${activePanel === 'stats' ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {activePanel === 'stats' && (
+              <div className="px-4 pb-4 space-y-3">
+                {isLoading('savedIdeas') || isLoading('watchlist') ? (
+                  <>
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-16"></div>
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-16"></div>
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-16"></div>
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-16"></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-blue-600">Ideas Viewed</p>
+                          <p className="text-lg font-bold text-blue-900">0</p>
+                        </div>
+                        <Eye className="h-5 w-5 text-blue-500" />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleSaveIdea(idea.id)}
-                          disabled={savingIdea === idea.id}
-                          className={`p-2 rounded-full transition-colors ${
-                            savedIdeas.includes(idea.id)
-                              ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100'
-                              : 'text-gray-400 hover:text-yellow-600 hover:bg-yellow-50'
-                          } disabled:opacity-50`}
-                          title={savedIdeas.includes(idea.id) ? 'Remove from saved' : 'Save idea'}
-                        >
-                          {savingIdea === idea.id ? (
-                            <div className="h-5 w-5 border border-gray-300 border-t-yellow-600 rounded-full animate-spin"></div>
-                          ) : savedIdeas.includes(idea.id) ? (
-                            <BookmarkCheck className="h-5 w-5" />
-                          ) : (
-                            <Bookmark className="h-5 w-5" />
-                          )}
-                        </button>
+                    </div>
+
+                    <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-100">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-yellow-600">Ideas Saved</p>
+                          <p className="text-lg font-bold text-yellow-900">{savedIdeasCount}</p>
+                        </div>
+                        <Star className="h-5 w-5 text-yellow-500" />
+                      </div>
+                    </div>
+
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-100">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-green-600">Watchlist</p>
+                          <p className="text-lg font-bold text-green-900">{watchlist.length}</p>
+                        </div>
                         <TrendingUp className="h-5 w-5 text-green-500" />
                       </div>
                     </div>
-                    
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                      {idea.theme}
-                    </h3>
-                    
-                    <p className={`text-gray-600 mb-4 text-sm ${!isExpanded ? 'line-clamp-3' : ''}`}>
-                      {idea.analysis}
-                    </p>
 
-                    {/* Expand/Collapse Button */}
+                    <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-purple-600">Days Active</p>
+                          <p className="text-lg font-bold text-purple-900">1</p>
+                        </div>
+                        <Clock className="h-5 w-5 text-purple-500" />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Ideas Panel */}
+          <div className="border-b border-gray-200">
+            <button
+              onClick={() => togglePanel('ideas')}
+              className="w-full p-4 text-left hover:bg-gray-50 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-gray-600" />
+                <span className="font-medium">Today's Ideas</span>
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${activePanel === 'ideas' ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {activePanel === 'ideas' && (
+              <div className="px-4 pb-4">
+                {isLoading('ideas') ? (
+                  <div className="space-y-3">
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-24"></div>
+                    <div className="animate-pulse bg-gray-100 rounded-lg p-3 h-24"></div>
+                  </div>
+                ) : ideasError ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-red-600 mb-2">{ideasError}</p>
                     <button
-                      onClick={() => toggleExpanded(idea.id)}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-medium mb-4 inline-flex items-center"
+                      onClick={fetchIdeas}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
                     >
-                      {isExpanded ? (
-                        <>
-                          Show Less
-                          <ChevronUp className="ml-1 h-4 w-4" />
-                        </>
-                      ) : (
-                        <>
-                          Read More
-                          <ChevronDown className="ml-1 h-4 w-4" />
-                        </>
-                      )}
+                      Retry
                     </button>
-                    
-                    <div className="flex flex-wrap gap-1">
-                      {idea.tickers.split(',').map((ticker, index) => {
-                        const cleanTicker = ticker.trim().replace(/[\[\]"]/g, '') // Remove all [ ] and " characters
-                        if (!cleanTicker) return null
-                        
-                        return (
-                          <div key={index} className="flex items-center gap-1">
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-md font-medium">
-                              {cleanTicker}
-                            </span>
+                  </div>
+                ) : ideas.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">No ideas available</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {ideas.slice(0, 3).map((idea) => {
+                      const isSelected = chat.selectedIdea?.id === idea.id
+                      return (
+                        <div 
+                          key={idea.id} 
+                          className={`rounded-lg p-3 border transition-all ${
+                            isSelected 
+                              ? 'bg-blue-50 border-blue-200 ring-2 ring-blue-100' 
+                              : 'bg-gray-50 border-gray-100 hover:bg-gray-100'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <h4 className={`text-sm font-medium line-clamp-2 ${
+                              isSelected ? 'text-blue-900' : 'text-gray-900'
+                            }`}>
+                              {isSelected && '🎯 '}{idea.theme}
+                            </h4>
                             <button
-                              onClick={() => addToWatchlist(cleanTicker)}
-                              disabled={addingToWatchlist === cleanTicker}
-                              className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors disabled:opacity-50"
-                              title={`Add ${cleanTicker} to watchlist`}
+                              onClick={() => toggleSaveIdea(idea.id)}
+                              disabled={savingIdea === idea.id}
+                              className={`ml-2 p-1 rounded transition-colors ${
+                                savedIdeas.includes(idea.id)
+                                  ? 'text-yellow-600 bg-yellow-50'
+                                  : 'text-gray-400 hover:text-yellow-600'
+                              } disabled:opacity-50`}
                             >
-                              {addingToWatchlist === cleanTicker ? (
-                                <div className="h-3 w-3 border border-gray-300 border-t-green-600 rounded-full animate-spin"></div>
+                              {savingIdea === idea.id ? (
+                                <div className="h-3 w-3 border border-gray-300 border-t-yellow-600 rounded-full animate-spin"></div>
+                              ) : savedIdeas.includes(idea.id) ? (
+                                <BookmarkCheck className="h-3 w-3" />
                               ) : (
-                                <Plus className="h-3 w-3" />
+                                <Bookmark className="h-3 w-3" />
                               )}
                             </button>
                           </div>
-                        )
-                      })}
-                    </div>
+                          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{idea.analysis}</p>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {idea.tickers.split(',').slice(0, 3).map((ticker, index) => {
+                              const cleanTicker = ticker.trim().replace(/[\[\]"]/g, '')
+                              if (!cleanTicker) return null
+                              
+                              return (
+                                <span key={index} className={`px-1.5 py-0.5 text-xs rounded font-medium ${
+                                  isSelected 
+                                    ? 'bg-blue-200 text-blue-900' 
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {cleanTicker}
+                                </span>
+                              )
+                            })}
+                          </div>
+                          <button
+                            onClick={() => chat.selectIdea(idea)}
+                            className={`w-full text-xs font-medium py-1.5 px-2 rounded transition-colors ${
+                              isSelected
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200'
+                            }`}
+                          >
+                            {isSelected ? '✓ Discussing with AI' : '💬 Discuss with AI'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                    <Link
+                      href="/ideas"
+                      className="block text-center py-2 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      View All Ideas →
+                    </Link>
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                )}
+              </div>
+            )}
+          </div>
 
-        {/* My Watchlist Section */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">My Watchlist</h2>
-          
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            {isLoading('watchlist') ? (
-              <LoadingSpinner message="Loading watchlist..." />
-            ) : watchlistError ? (
-              <ErrorState
-                title="Failed to load watchlist"
-                message={watchlistError}
-                onRetry={fetchWatchlist}
-                retryLabel="Retry"
-                className="border-0 p-0"
-              />
-            ) : watchlist.length === 0 ? (
-              <EmptyWatchlistState />
-            ) : (
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600 mb-4">
-                  {watchlist.length} ticker{watchlist.length !== 1 ? 's' : ''} in your watchlist
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {watchlist.map((ticker, index) => (
-                    <div key={index} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                      <span className="font-medium text-blue-900">{ticker}</span>
-                      <button
-                        onClick={async () => {
-                          try {
-                            const response = await fetch(`/api/watchlist?ticker=${ticker}&watchlist_name=Default Watchlist`, {
-                              method: 'DELETE'
-                            })
-                            if (response.ok) {
-                              setWatchlist(prev => prev.filter(t => t !== ticker))
-                              setWatchlistMessage(`${ticker} removed from watchlist!`)
-                              setTimeout(() => setWatchlistMessage(''), 3000)
+          {/* Watchlist Panel */}
+          <div className="border-b border-gray-200">
+            <button
+              onClick={() => togglePanel('watchlist')}
+              className="w-full p-4 text-left hover:bg-gray-50 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <Star className="h-4 w-4 text-gray-600" />
+                <span className="font-medium">Watchlist</span>
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${activePanel === 'watchlist' ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {activePanel === 'watchlist' && (
+              <div className="px-4 pb-4">
+                {isLoading('watchlist') ? (
+                  <div className="text-center py-4">
+                    <LoadingSpinner message="Loading..." />
+                  </div>
+                ) : watchlistError ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-red-600 mb-2">{watchlistError}</p>
+                    <button
+                      onClick={fetchWatchlist}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : watchlist.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">No tickers in watchlist</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    <p className="text-xs text-gray-500 mb-2">
+                      {watchlist.length} ticker{watchlist.length !== 1 ? 's' : ''}
+                    </p>
+                    {watchlist.map((ticker, index) => (
+                      <div key={index} className="flex items-center justify-between bg-blue-50 rounded-lg p-2 border border-blue-100">
+                        <span className="text-sm font-medium text-blue-900">{ticker}</span>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`/api/watchlist?ticker=${ticker}&watchlist_name=Default Watchlist`, {
+                                method: 'DELETE'
+                              })
+                              if (response.ok) {
+                                setWatchlist(prev => prev.filter(t => t !== ticker))
+                                setWatchlistMessage(`${ticker} removed from watchlist!`)
+                                setTimeout(() => setWatchlistMessage(''), 3000)
+                              }
+                            } catch (err) {
+                              console.error('Failed to remove ticker:', err)
                             }
-                          } catch (err) {
-                            console.error('Failed to remove ticker:', err)
-                          }
-                        }}
-                        className="text-blue-600 hover:text-red-600 transition-colors"
-                        title={`Remove ${ticker} from watchlist`}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                          }}
+                          className="text-blue-600 hover:text-red-600 transition-colors p-1"
+                          title={`Remove ${ticker}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Activity Panel */}
+          <div>
+            <button
+              onClick={() => togglePanel('activity')}
+              className="w-full p-4 text-left hover:bg-gray-50 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-gray-600" />
+                <span className="font-medium">Activity</span>
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${activePanel === 'activity' ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {activePanel === 'activity' && (
+              <div className="px-4 pb-4">
+                <EmptyActivityState />
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Quick Actions */}
-        <div className="grid md:grid-cols-2 gap-8">
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-            <EmptyActivityState />
-          </div>
-
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-            <div className="space-y-3">
-              <button className="w-full text-left p-3 rounded-lg hover:bg-gray-50 border border-gray-200 transition-colors">
-                <div className="font-medium text-gray-900">Update Preferences</div>
-                <div className="text-sm text-gray-500">Customize your notification settings</div>
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Chat Header */}
+        <header className="bg-white border-b border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {!sidebarOpen && (
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="p-2 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  <PanelLeftOpen className="h-5 w-5" />
+                </button>
+              )}
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-6 w-6 text-blue-600" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-xl font-bold text-gray-900">AI Trading Assistant</h1>
+                    {chat.selectedIdea && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">•</span>
+                        <span className="text-blue-600 font-medium text-sm">
+                          🎯 {chat.selectedIdea.theme}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-gray-600">
+                      Welcome back, {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}!
+                    </p>
+                    {chat.selectedIdea && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-400">•</span>
+                        <span className="text-xs text-blue-600">
+                          {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {chat.selectedIdea && (
+                <button
+                  onClick={chat.clearSelectedIdea}
+                  className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors border border-blue-200"
+                >
+                  Clear Selection
+                </button>
+              )}
+              <button
+                onClick={chat.clearMessages}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Clear Chat
               </button>
-              <button className="w-full text-left p-3 rounded-lg hover:bg-gray-50 border border-gray-200 transition-colors">
-                <div className="font-medium text-gray-900">View Portfolio</div>
-                <div className="text-sm text-gray-500">Track your investments and performance</div>
-              </button>
-              <button className="w-full text-left p-3 rounded-lg hover:bg-gray-50 border border-gray-200 transition-colors">
-                <div className="font-medium text-gray-900">Export Watchlist</div>
-                <div className="text-sm text-gray-500">Download your watchlist as CSV</div>
-              </button>
+              <UserMenu />
             </div>
           </div>
+        </header>
+
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {chat.messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center max-w-md">
+                {chat.selectedIdea ? (
+                  <>
+                    <div className="bg-blue-50 rounded-full p-3 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                      <TrendingUp className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">
+                      Discussing: {chat.selectedIdea.theme}
+                    </h3>
+                    <p className="text-gray-600 mb-4">
+                      I'm focused on this trading idea involving {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}.
+                    </p>
+                    <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
+                      <p className="text-sm text-gray-700 line-clamp-3">
+                        {chat.selectedIdea.analysis}
+                      </p>
+                    </div>
+                    <div className="space-y-2 text-sm text-gray-500">
+                      <p>Ask me about:</p>
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => chat.sendMessage("What are the key risks with this trading idea?", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "What are the key risks with this idea?"
+                        </button>
+                        <button
+                          onClick={() => chat.sendMessage("How does this fit into a diversified portfolio?", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "How does this fit into my portfolio?"
+                        </button>
+                        <button
+                          onClick={() => chat.sendMessage("What's the best entry strategy for this idea?", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "What's the best entry strategy?"
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Start a conversation</h3>
+                    <p className="text-gray-600 mb-6">
+                      Ask me about trading ideas, market analysis, or managing your watchlist. Select a trading idea from the sidebar for focused discussion!
+                    </p>
+                    <div className="space-y-2 text-sm text-gray-500">
+                      <p>Try asking:</p>
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => chat.sendMessage("What are some good trading ideas for today?", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "What are some good trading ideas for today?"
+                        </button>
+                        <button
+                          onClick={() => chat.sendMessage("How is the market performing?", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "How is the market performing?"
+                        </button>
+                        <button
+                          onClick={() => chat.sendMessage("Help me analyze my watchlist", watchlist)}
+                          className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                          "Help me analyze my watchlist"
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {chat.messages.map((message) => (
+                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-xs lg:max-w-2xl px-4 py-2 rounded-lg ${
+                    message.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white border border-gray-200 text-gray-900'
+                  }`}>
+                    {message.typing ? (
+                      <div className="flex items-center space-x-1">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                        <span className="text-sm text-gray-500 ml-2">AI is typing...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="whitespace-pre-wrap">{message.content}</div>
+                        <div className={`text-xs mt-1 ${
+                          message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+                        }`}>
+                          {formatChatTime(message.timestamp)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </>
+          )}
         </div>
-      </main>
+
+        {/* Chat Input */}
+        <div className="border-t border-gray-200 bg-white p-4">
+          {watchlistMessage && (
+            <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800 text-sm">{watchlistMessage}</p>
+            </div>
+          )}
+          
+          <form onSubmit={handleSendMessage} className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={chat.input}
+              onChange={(e) => chat.setInput(e.target.value)}
+              placeholder="Ask about trading ideas, market analysis, or your watchlist..."
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={chat.isTyping}
+            />
+            <button
+              type="submit"
+              disabled={!chat.input.trim() || chat.isTyping}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   )
 }
