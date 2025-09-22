@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { 
+  apiSuccess, 
+  apiError, 
+  validateBody, 
+  withRetry,
+  SubscribeRequest,
+  isValidSubscribeRequest,
+  validators
+} from '@/lib/api-helpers'
 
 export interface Subscriber {
   id: string
@@ -8,180 +17,155 @@ export interface Subscriber {
   is_active: boolean
 }
 
-interface SubscribeRequest {
-  email: string
-}
-
-interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
-}
-
-// Email validation regex
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-function validateEmail(email: string): boolean {
-  return emailRegex.test(email.toLowerCase())
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<Subscriber>>> {
+export async function POST(request: NextRequest) {
   try {
-    const body: SubscribeRequest = await request.json()
-    
     // Validate request body
-    if (!body.email) {
-      return NextResponse.json(
-        { error: 'Email is required' },
-        { status: 400 }
-      )
+    const validation = await validateBody(
+      request, 
+      isValidSubscribeRequest, 
+      'Invalid subscription request. Please provide a valid email address.'
+    )
+    
+    if (!validation.success) {
+      return validation.response
     }
-
-    // Validate email format
-    if (!validateEmail(body.email)) {
-      return NextResponse.json(
-        { error: 'Invalid email format' },
-        { status: 400 }
-      )
-    }
-
-    const email = body.email.toLowerCase().trim()
+    
+    const { email }: SubscribeRequest = validation.data
+    const cleanEmail = email.toLowerCase().trim()
     const supabase = await createClient()
 
-    // Check if subscriber already exists
-    const { data: existingSubscriber, error: checkError } = await supabase
-      .from('subscribers')
-      .select('id, email, is_active')
-      .eq('email', email)
-      .single()
+    // Wrap database operations with retry logic
+    const result = await withRetry(
+      async () => {
+        // Check if subscriber already exists
+        const { data: existingSubscriber, error: checkError } = await supabase
+          .from('subscribers')
+          .select('id, email, is_active')
+          .eq('email', cleanEmail)
+          .single()
 
-    if (checkError && checkError.code !== 'PGRST116') {
-      // PGRST116 is "not found" error, which is expected for new subscribers
-      console.error('Error checking existing subscriber:', checkError)
-      return NextResponse.json(
-        { error: 'Database error occurred' },
-        { status: 500 }
-      )
-    }
-
-    // If subscriber exists and is active
-    if (existingSubscriber && existingSubscriber.is_active) {
-      return NextResponse.json(
-        { error: 'Email is already subscribed' },
-        { status: 409 }
-      )
-    }
-
-    // If subscriber exists but is inactive, reactivate them
-    if (existingSubscriber && !existingSubscriber.is_active) {
-      const { data: reactivatedSubscriber, error: updateError } = await supabase
-        .from('subscribers')
-        .update({ is_active: true })
-        .eq('id', existingSubscriber.id)
-        .select()
-        .single()
-
-      if (updateError) {
-        console.error('Error reactivating subscriber:', updateError)
-        return NextResponse.json(
-          { error: 'Failed to reactivate subscription' },
-          { status: 500 }
-        )
-      }
-
-      return NextResponse.json({
-        data: reactivatedSubscriber,
-        message: 'Successfully reactivated your subscription!'
-      })
-    }
-
-    // Create new subscriber
-    const { data: newSubscriber, error: insertError } = await supabase
-      .from('subscribers')
-      .insert([
-        {
-          email,
-          is_active: true
+        if (checkError && checkError.code !== 'PGRST116') {
+          // PGRST116 is "not found" error, which is expected for new subscribers
+          throw new Error(`Database error checking existing subscriber: ${checkError.message}`)
         }
-      ])
-      .select()
-      .single()
 
-    if (insertError) {
-      console.error('Error creating subscriber:', insertError)
-      return NextResponse.json(
-        { error: 'Failed to create subscription' },
-        { status: 500 }
-      )
-    }
+        // If subscriber exists and is active
+        if (existingSubscriber && existingSubscriber.is_active) {
+          return {
+            type: 'already_active',
+            message: 'Email is already subscribed',
+            data: existingSubscriber,
+            status: 409
+          }
+        }
 
-    return NextResponse.json({
-      data: newSubscriber,
-      message: 'Successfully subscribed! Welcome to SpeculationAssist.'
-    }, { status: 201 })
+        // If subscriber exists but is inactive, reactivate them
+        if (existingSubscriber && !existingSubscriber.is_active) {
+          const { data: reactivatedSubscriber, error: updateError } = await supabase
+            .from('subscribers')
+            .update({ is_active: true })
+            .eq('id', existingSubscriber.id)
+            .select()
+            .single()
 
-  } catch (error) {
-    console.error('Error in subscribe endpoint:', error)
-    
-    // Handle JSON parsing errors
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: 'Invalid JSON in request body' },
-        { status: 400 }
-      )
-    }
+          if (updateError) {
+            throw new Error(`Database error reactivating subscriber: ${updateError.message}`)
+          }
 
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+          return {
+            type: 'reactivated',
+            message: 'Successfully reactivated your subscription!',
+            data: reactivatedSubscriber,
+            status: 200
+          }
+        }
+
+        // Create new subscriber
+        const { data: newSubscriber, error: insertError } = await supabase
+          .from('subscribers')
+          .insert([
+            {
+              email: cleanEmail,
+              is_active: true
+            }
+          ])
+          .select()
+          .single()
+
+        if (insertError) {
+          throw new Error(`Database error creating subscriber: ${insertError.message}`)
+        }
+
+        return {
+          type: 'created',
+          message: 'Successfully subscribed! Welcome to SpeculationAssist.',
+          data: newSubscriber,
+          status: 201
+        }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Subscribe user'
     )
+
+    if (result.type === 'already_active') {
+      return apiError(result.message, result.status, null, 'ALREADY_SUBSCRIBED')
+    }
+
+    return apiSuccess(result.data, result.message, result.status)
+  } catch (error) {
+    console.error('Error in POST /api/subscribe:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to manage subscription in database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to process subscription', 500, error instanceof Error ? error.message : error)
   }
 }
 
-// Optional: Handle unsubscribe requests
-export async function DELETE(request: NextRequest): Promise<NextResponse<ApiResponse<null>>> {
+// Handle unsubscribe requests
+export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const email = searchParams.get('email')
 
     if (!email) {
-      return NextResponse.json(
-        { error: 'Email parameter is required' },
-        { status: 400 }
-      )
+      return apiError('Email parameter is required', 400, null, 'MISSING_EMAIL')
     }
 
-    if (!validateEmail(email)) {
-      return NextResponse.json(
-        { error: 'Invalid email format' },
-        { status: 400 }
-      )
+    if (!validators.isEmail(email)) {
+      return apiError('Invalid email format', 400, null, 'INVALID_EMAIL')
     }
 
     const supabase = await createClient()
+    const cleanEmail = email.toLowerCase().trim()
 
-    const { error } = await supabase
-      .from('subscribers')
-      .update({ is_active: false })
-      .eq('email', email.toLowerCase().trim())
+    // Wrap database operation with retry logic
+    await withRetry(
+      async () => {
+        const { error } = await supabase
+          .from('subscribers')
+          .update({ is_active: false })
+          .eq('email', cleanEmail)
 
-    if (error) {
-      console.error('Error unsubscribing:', error)
-      return NextResponse.json(
-        { error: 'Failed to unsubscribe' },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      message: 'Successfully unsubscribed'
-    })
-
-  } catch (error) {
-    console.error('Error in unsubscribe endpoint:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+        if (error) {
+          throw new Error(`Database error unsubscribing: ${error.message}`)
+        }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Unsubscribe user'
     )
+
+    return apiSuccess(null, 'Successfully unsubscribed')
+  } catch (error) {
+    console.error('Error in DELETE /api/subscribe:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to unsubscribe in database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to unsubscribe', 500, error instanceof Error ? error.message : error)
   }
 }

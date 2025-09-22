@@ -1,207 +1,185 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { 
+  withAuth, 
+  apiSuccess, 
+  apiError, 
+  validateBody, 
+  withRetry,
+  SaveIdeaRequest,
+  isValidSaveIdeaRequest
+} from '@/lib/api-helpers'
+import { User } from '@supabase/supabase-js'
 
-interface SaveIdeaRequest {
-  idea_id: number
-  notes?: string
-}
-
-interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
-}
-
-export async function GET(): Promise<NextResponse<ApiResponse<any[]>>> {
+export const GET = withAuth(async (user: User) => {
   try {
     const supabase = await createClient()
     
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
+    // Wrap database operation with retry logic
+    const savedIdeas = await withRetry(
+      async () => {
+        const { data, error } = await supabase
+          .from('user_idea_interactions')
+          .select(`
+            id,
+            idea_id,
+            notes,
+            created_at,
+            generated_ideas (
+              id,
+              theme,
+              analysis,
+              tickers,
+              created_at
+            )
+          `)
+          .eq('user_id', user.id)
+          .eq('interaction_type', 'saved')
+          .order('created_at', { ascending: false })
 
-    // Get user's saved ideas with idea details
-    const { data: savedIdeas, error } = await supabase
-      .from('user_idea_interactions')
-      .select(`
-        id,
-        idea_id,
-        notes,
-        created_at,
-        generated_ideas (
-          id,
-          theme,
-          analysis,
-          tickers,
-          created_at
-        )
-      `)
-      .eq('user_id', user.id)
-      .eq('interaction_type', 'saved')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching saved ideas:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch saved ideas' },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({ data: savedIdeas || [] })
-  } catch (error) {
-    console.error('Error in saved ideas GET:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
-  }
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<any>>> {
-  try {
-    const body: SaveIdeaRequest = await request.json()
-    
-    if (!body.idea_id) {
-      return NextResponse.json(
-        { error: 'Idea ID is required' },
-        { status: 400 }
-      )
-    }
-
-    const supabase = await createClient()
-    
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
-
-    // Check if idea is already saved
-    const { data: existingInteraction, error: checkError } = await supabase
-      .from('user_idea_interactions')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('idea_id', body.idea_id)
-      .eq('interaction_type', 'saved')
-      .single()
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('Error checking existing interaction:', checkError)
-      return NextResponse.json(
-        { error: 'Database error occurred' },
-        { status: 500 }
-      )
-    }
-
-    if (existingInteraction) {
-      return NextResponse.json(
-        { message: 'Idea is already saved' },
-        { status: 200 }
-      )
-    }
-
-    // Save the idea
-    const { data: savedInteraction, error: saveError } = await supabase
-      .from('user_idea_interactions')
-      .insert([
-        {
-          user_id: user.id,
-          idea_id: body.idea_id,
-          interaction_type: 'saved',
-          notes: body.notes || null
+        if (error) {
+          throw new Error(`Database error: ${error.message}`)
         }
-      ])
-      .select()
-      .single()
 
-    if (saveError) {
-      console.error('Error saving idea:', saveError)
-      return NextResponse.json(
-        { error: 'Failed to save idea' },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      data: savedInteraction,
-      message: 'Idea saved successfully!'
-    }, { status: 201 })
-  } catch (error) {
-    console.error('Error in saved ideas POST:', error)
-    
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: 'Invalid JSON in request body' },
-        { status: 400 }
-      )
-    }
-
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+        return data || []
+      },
+      3, // max retries
+      1000, // initial delay
+      'Fetch saved ideas'
     )
-  }
-}
 
-export async function DELETE(request: NextRequest): Promise<NextResponse<ApiResponse<any>>> {
+    return apiSuccess(savedIdeas, `Retrieved ${savedIdeas.length} saved ideas`)
+  } catch (error) {
+    console.error('Error in GET /api/ideas/saved:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to fetch saved ideas from database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to fetch saved ideas', 500, error instanceof Error ? error.message : error)
+  }
+})
+
+export const POST = withAuth(async (user: User, request: NextRequest) => {
+  try {
+    // Validate request body
+    const validation = await validateBody(
+      request, 
+      isValidSaveIdeaRequest, 
+      'Invalid save idea request. Please provide a valid idea_id.'
+    )
+    
+    if (!validation.success) {
+      return validation.response
+    }
+    
+    const { idea_id, notes }: SaveIdeaRequest = validation.data
+    const supabase = await createClient()
+    
+    // Wrap database operations with retry logic
+    const result = await withRetry(
+      async () => {
+        // Check if idea is already saved
+        const { data: existingInteraction, error: checkError } = await supabase
+          .from('user_idea_interactions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('idea_id', idea_id)
+          .eq('interaction_type', 'saved')
+          .single()
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          throw new Error(`Database error checking existing interaction: ${checkError.message}`)
+        }
+
+        if (existingInteraction) {
+          return { alreadyExists: true, data: null }
+        }
+
+        // Save the idea
+        const { data: savedInteraction, error: saveError } = await supabase
+          .from('user_idea_interactions')
+          .insert([
+            {
+              user_id: user.id,
+              idea_id,
+              interaction_type: 'saved',
+              notes: notes || null
+            }
+          ])
+          .select()
+          .single()
+
+        if (saveError) {
+          throw new Error(`Database error saving idea: ${saveError.message}`)
+        }
+
+        return { alreadyExists: false, data: savedInteraction }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Save idea interaction'
+    )
+
+    if (result.alreadyExists) {
+      return apiSuccess(null, 'Idea is already saved')
+    }
+
+    return apiSuccess(result.data, 'Idea saved successfully!', 201)
+  } catch (error) {
+    console.error('Error in POST /api/ideas/saved:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to save idea to database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to save idea', 500, error instanceof Error ? error.message : error)
+  }
+})
+
+export const DELETE = withAuth(async (user: User, request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const ideaId = searchParams.get('idea_id')
 
     if (!ideaId) {
-      return NextResponse.json(
-        { error: 'Idea ID is required' },
-        { status: 400 }
-      )
+      return apiError('Idea ID is required in query parameters', 400, null, 'MISSING_IDEA_ID')
+    }
+
+    const parsedIdeaId = parseInt(ideaId)
+    if (isNaN(parsedIdeaId) || parsedIdeaId <= 0) {
+      return apiError('Invalid idea ID format', 400, null, 'INVALID_IDEA_ID')
     }
 
     const supabase = await createClient()
-    
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
 
-    // Remove the saved interaction
-    const { error: deleteError } = await supabase
-      .from('user_idea_interactions')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('idea_id', parseInt(ideaId))
-      .eq('interaction_type', 'saved')
+    // Wrap database operation with retry logic
+    await withRetry(
+      async () => {
+        const { error: deleteError } = await supabase
+          .from('user_idea_interactions')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('idea_id', parsedIdeaId)
+          .eq('interaction_type', 'saved')
 
-    if (deleteError) {
-      console.error('Error removing saved idea:', deleteError)
-      return NextResponse.json(
-        { error: 'Failed to remove saved idea' },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({
-      message: 'Idea removed from saved list!'
-    })
-  } catch (error) {
-    console.error('Error in saved ideas DELETE:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+        if (deleteError) {
+          throw new Error(`Database error removing saved idea: ${deleteError.message}`)
+        }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Remove saved idea'
     )
+
+    return apiSuccess(null, 'Idea removed from saved list!')
+  } catch (error) {
+    console.error('Error in DELETE /api/ideas/saved:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to remove saved idea from database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to remove saved idea', 500, error instanceof Error ? error.message : error)
   }
-}
+})

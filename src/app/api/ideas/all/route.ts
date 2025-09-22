@@ -1,19 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
-
-export interface TradingIdea {
-  id: number
-  created_at: string
-  theme: string
-  analysis: string
-  tickers: string
-}
-
-interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
-}
+import { apiSuccess, apiError, withRetry, TradingIdea } from '@/lib/api-helpers'
 
 // Function to parse combined trading ideas from a single database row
 function parseCombinedIdeas(combinedData: any): TradingIdea[] {
@@ -75,34 +62,40 @@ function parseCombinedIdeas(combinedData: any): TradingIdea[] {
   return parsedIdeas
 }
 
-export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
-  
+export async function GET() {
   try {
     let ideas: any[] | null = null
 
-    // Try to connect to Supabase, but gracefully handle failures
+    // Wrap database operation with retry logic
     try {
-      const supabase = await createClient()
-      
-      const { data, error } = await supabase
-        .from('generated_ideas')
-        .select('id, created_at, theme, analysis, tickers')
-        .order('created_at', { ascending: false })
-        // No limit - get all ideas for the ideas page
+      ideas = await withRetry(
+        async () => {
+          const supabase = await createClient()
+          
+          const { data, error } = await supabase
+            .from('generated_ideas')
+            .select('id, created_at, theme, analysis, tickers')
+            .order('created_at', { ascending: false })
+            // No limit - get all ideas for the ideas page
 
-      if (error) {
-        console.error('Supabase error:', error)
-      }
-      
-      if (!error && data) {
-        ideas = data
-      }
+          if (error) {
+            throw new Error(`Database error: ${error.message}`)
+          }
+          
+          return data
+        },
+        3, // max retries
+        1000, // initial delay
+        'Fetch all trading ideas'
+      )
     } catch (supabaseError) {
-      console.error('Supabase connection error:', supabaseError)
+      console.error('Database operation failed after retries:', supabaseError)
       // Continue to mock data fallback
     }
 
     if (!ideas || ideas.length === 0) {
+      console.log('No ideas found in database, returning extended mock data')
+      
       // Return extended mock data if no ideas in database yet
       const mockIdeas: TradingIdea[] = [
         {
@@ -149,7 +142,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
         }
       ]
       
-      return NextResponse.json({ data: mockIdeas })
+      return apiSuccess(mockIdeas, 'Returned extended mock trading ideas')
     }
 
     let processedIdeas: TradingIdea[] = []
@@ -162,6 +155,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
     )
 
     if (hasCombinedFormat) {
+      console.log('Processing combined format ideas')
       // Parse combined format - process all rows that contain combined data
       ideas.forEach(idea => {
         if (idea.analysis && 
@@ -172,6 +166,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
         }
       })
     } else {
+      console.log('Using individual format ideas')
       // Use individual rows as-is
       processedIdeas = ideas as TradingIdea[]
     }
@@ -179,12 +174,15 @@ export async function GET(): Promise<NextResponse<ApiResponse<TradingIdea[]>>> {
     // Sort by created_at descending
     processedIdeas.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     
-    return NextResponse.json({ data: processedIdeas })
+    console.log(`Returning ${processedIdeas.length} trading ideas`)
+    return apiSuccess(processedIdeas, `Retrieved ${processedIdeas.length} trading ideas`)
   } catch (error) {
-    console.error('Error fetching all trading ideas:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch trading ideas' },
-      { status: 500 }
+    console.error('Error in GET /api/ideas/all:', error)
+    return apiError(
+      'Failed to fetch trading ideas', 
+      500, 
+      error instanceof Error ? error.message : error,
+      'FETCH_ALL_IDEAS_ERROR'
     )
   }
 }

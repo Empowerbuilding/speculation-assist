@@ -1,250 +1,245 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { 
+  withAuth, 
+  apiSuccess, 
+  apiError, 
+  validateBody, 
+  withRetry,
+  AddToWatchlistRequest,
+  isValidWatchlistRequest
+} from '@/lib/api-helpers'
+import { User } from '@supabase/supabase-js'
 
-interface AddToWatchlistRequest {
-  ticker: string
-  watchlist_name?: string
-}
-
-interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
-}
-
-export async function GET(): Promise<NextResponse<ApiResponse<any[]>>> {
+export const GET = withAuth(async (user: User) => {
   try {
     const supabase = await createClient()
     
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
+    // Wrap database operation with retry logic
+    const watchlists = await withRetry(
+      async () => {
+        const { data, error } = await supabase
+          .from('user_watchlists')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
 
-    // Get user's watchlists
-    const { data: watchlists, error } = await supabase
-      .from('user_watchlists')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+        if (error) {
+          throw new Error(`Database error: ${error.message}`)
+        }
 
-    if (error) {
-      console.error('Error fetching watchlists:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch watchlists' },
-        { status: 500 }
-      )
-    }
-
-    return NextResponse.json({ data: watchlists || [] })
-  } catch (error) {
-    console.error('Error in watchlist GET:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+        return data || []
+      },
+      3, // max retries
+      1000, // initial delay
+      'Fetch user watchlists'
     )
-  }
-}
 
-export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<any>>> {
-  try {
-    const body: AddToWatchlistRequest = await request.json()
+    return apiSuccess(watchlists, `Retrieved ${watchlists.length} watchlists`)
+  } catch (error) {
+    console.error('Error in GET /api/watchlist:', error)
     
-    if (!body.ticker) {
-      return NextResponse.json(
-        { error: 'Ticker is required' },
-        { status: 400 }
-      )
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to fetch watchlists from database', 500, error.message, 'DATABASE_ERROR')
     }
+    
+    return apiError('Failed to fetch watchlists', 500, error instanceof Error ? error.message : error)
+  }
+})
 
+export const POST = withAuth(async (user: User, request: NextRequest) => {
+  try {
+    // Validate request body
+    const validation = await validateBody(
+      request, 
+      isValidWatchlistRequest, 
+      'Invalid watchlist request. Please provide a valid ticker symbol.'
+    )
+    
+    if (!validation.success) {
+      return validation.response
+    }
+    
+    const { ticker, watchlist_name }: AddToWatchlistRequest = validation.data
     const supabase = await createClient()
     
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
+    const cleanTicker = ticker.toUpperCase().trim()
+    const watchlistName = watchlist_name || 'Default Watchlist'
 
-    const ticker = body.ticker.toUpperCase().trim()
-    const watchlistName = body.watchlist_name || 'Default Watchlist'
+    // Wrap database operations with retry logic
+    const result = await withRetry(
+      async () => {
+        // Check if user has a default watchlist or the specified watchlist
+        const { data: existingWatchlist, error: fetchError } = await supabase
+          .from('user_watchlists')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('name', watchlistName)
+          .single()
 
-    // Check if user has a default watchlist or the specified watchlist
-    const { data: existingWatchlist, error: fetchError } = await supabase
-      .from('user_watchlists')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('name', watchlistName)
-      .single()
+        if (fetchError && fetchError.code !== 'PGRST116') {
+          throw new Error(`Database error checking existing watchlist: ${fetchError.message}`)
+        }
 
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Error checking existing watchlist:', fetchError)
-      return NextResponse.json(
-        { error: 'Database error occurred' },
-        { status: 500 }
-      )
-    }
-
-    if (existingWatchlist) {
-      // Check if ticker already exists in watchlist
-      if (existingWatchlist.tickers.includes(ticker)) {
-        return NextResponse.json(
-          { message: `${ticker} is already in your ${watchlistName}` },
-          { status: 200 }
-        )
-      }
-
-      // Add ticker to existing watchlist
-      const updatedTickers = [...existingWatchlist.tickers, ticker]
-      
-      const { data: updatedWatchlist, error: updateError } = await supabase
-        .from('user_watchlists')
-        .update({ 
-          tickers: updatedTickers,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingWatchlist.id)
-        .select()
-        .single()
-
-      if (updateError) {
-        console.error('Error updating watchlist:', updateError)
-        return NextResponse.json(
-          { error: 'Failed to add ticker to watchlist' },
-          { status: 500 }
-        )
-      }
-
-      return NextResponse.json({
-        data: updatedWatchlist,
-        message: `${ticker} added to ${watchlistName}!`
-      })
-    } else {
-      // Create new watchlist with the ticker
-      const { data: newWatchlist, error: createError } = await supabase
-        .from('user_watchlists')
-        .insert([
-          {
-            user_id: user.id,
-            name: watchlistName,
-            description: watchlistName === 'Default Watchlist' ? 'My default watchlist' : undefined,
-            tickers: [ticker],
-            is_default: watchlistName === 'Default Watchlist'
+        if (existingWatchlist) {
+          // Check if ticker already exists in watchlist
+          if (existingWatchlist.tickers.includes(cleanTicker)) {
+            return { 
+              type: 'already_exists', 
+              message: `${cleanTicker} is already in your ${watchlistName}`,
+              data: existingWatchlist
+            }
           }
-        ])
-        .select()
-        .single()
 
-      if (createError) {
-        console.error('Error creating watchlist:', createError)
-        return NextResponse.json(
-          { error: 'Failed to create watchlist' },
-          { status: 500 }
-        )
-      }
+          // Add ticker to existing watchlist
+          const updatedTickers = [...existingWatchlist.tickers, cleanTicker]
+          
+          const { data: updatedWatchlist, error: updateError } = await supabase
+            .from('user_watchlists')
+            .update({ 
+              tickers: updatedTickers,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingWatchlist.id)
+            .select()
+            .single()
 
-      return NextResponse.json({
-        data: newWatchlist,
-        message: `Created ${watchlistName} and added ${ticker}!`
-      }, { status: 201 })
-    }
-  } catch (error) {
-    console.error('Error in watchlist POST:', error)
-    
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: 'Invalid JSON in request body' },
-        { status: 400 }
-      )
-    }
+          if (updateError) {
+            throw new Error(`Database error updating watchlist: ${updateError.message}`)
+          }
 
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+          return {
+            type: 'updated',
+            message: `${cleanTicker} added to ${watchlistName}!`,
+            data: updatedWatchlist
+          }
+        } else {
+          // Create new watchlist with the ticker
+          const { data: newWatchlist, error: createError } = await supabase
+            .from('user_watchlists')
+            .insert([
+              {
+                user_id: user.id,
+                name: watchlistName,
+                description: watchlistName === 'Default Watchlist' ? 'My default watchlist' : undefined,
+                tickers: [cleanTicker],
+                is_default: watchlistName === 'Default Watchlist'
+              }
+            ])
+            .select()
+            .single()
+
+          if (createError) {
+            throw new Error(`Database error creating watchlist: ${createError.message}`)
+          }
+
+          return {
+            type: 'created',
+            message: `Created ${watchlistName} and added ${cleanTicker}!`,
+            data: newWatchlist
+          }
+        }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Add ticker to watchlist'
     )
-  }
-}
 
-export async function DELETE(request: NextRequest): Promise<NextResponse<ApiResponse<any>>> {
+    const status = result.type === 'created' ? 201 : 200
+    return apiSuccess(result.data, result.message, status)
+  } catch (error) {
+    console.error('Error in POST /api/watchlist:', error)
+    
+    if (error instanceof Error && error.message.includes('Database error')) {
+      return apiError('Failed to manage watchlist in database', 500, error.message, 'DATABASE_ERROR')
+    }
+    
+    return apiError('Failed to add ticker to watchlist', 500, error instanceof Error ? error.message : error)
+  }
+})
+
+export const DELETE = withAuth(async (user: User, request: NextRequest) => {
   try {
     const { searchParams } = new URL(request.url)
     const ticker = searchParams.get('ticker')
     const watchlistName = searchParams.get('watchlist_name') || 'Default Watchlist'
 
     if (!ticker) {
-      return NextResponse.json(
-        { error: 'Ticker is required' },
-        { status: 400 }
-      )
+      return apiError('Ticker is required in query parameters', 400, null, 'MISSING_TICKER')
     }
 
     const supabase = await createClient()
-    
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
-
     const tickerUpper = ticker.toUpperCase().trim()
 
-    // Find the watchlist
-    const { data: watchlist, error: fetchError } = await supabase
-      .from('user_watchlists')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('name', watchlistName)
-      .single()
+    // Wrap database operations with retry logic
+    const result = await withRetry(
+      async () => {
+        // Find the watchlist
+        const { data: watchlist, error: fetchError } = await supabase
+          .from('user_watchlists')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('name', watchlistName)
+          .single()
 
-    if (fetchError) {
-      return NextResponse.json(
-        { error: 'Watchlist not found' },
-        { status: 404 }
-      )
-    }
+        if (fetchError) {
+          if (fetchError.code === 'PGRST116') {
+            throw new Error('WATCHLIST_NOT_FOUND')
+          }
+          throw new Error(`Database error fetching watchlist: ${fetchError.message}`)
+        }
 
-    // Remove ticker from watchlist
-    const updatedTickers = watchlist.tickers.filter(t => t !== tickerUpper)
-    
-    const { data: updatedWatchlist, error: updateError } = await supabase
-      .from('user_watchlists')
-      .update({ 
-        tickers: updatedTickers,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', watchlist.id)
-      .select()
-      .single()
+        // Check if ticker exists in watchlist
+        if (!watchlist.tickers.includes(tickerUpper)) {
+          return {
+            type: 'not_found',
+            message: `${tickerUpper} is not in your ${watchlistName}`,
+            data: watchlist
+          }
+        }
 
-    if (updateError) {
-      console.error('Error updating watchlist:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to remove ticker from watchlist' },
-        { status: 500 }
-      )
-    }
+        // Remove ticker from watchlist
+        const updatedTickers = watchlist.tickers.filter(t => t !== tickerUpper)
+        
+        const { data: updatedWatchlist, error: updateError } = await supabase
+          .from('user_watchlists')
+          .update({ 
+            tickers: updatedTickers,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', watchlist.id)
+          .select()
+          .single()
 
-    return NextResponse.json({
-      data: updatedWatchlist,
-      message: `${tickerUpper} removed from ${watchlistName}!`
-    })
-  } catch (error) {
-    console.error('Error in watchlist DELETE:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+        if (updateError) {
+          throw new Error(`Database error updating watchlist: ${updateError.message}`)
+        }
+
+        return {
+          type: 'removed',
+          message: `${tickerUpper} removed from ${watchlistName}!`,
+          data: updatedWatchlist
+        }
+      },
+      3, // max retries
+      1000, // initial delay
+      'Remove ticker from watchlist'
     )
+
+    return apiSuccess(result.data, result.message)
+  } catch (error) {
+    console.error('Error in DELETE /api/watchlist:', error)
+    
+    if (error instanceof Error) {
+      if (error.message === 'WATCHLIST_NOT_FOUND') {
+        return apiError('Watchlist not found', 404, null, 'WATCHLIST_NOT_FOUND')
+      }
+      
+      if (error.message.includes('Database error')) {
+        return apiError('Failed to update watchlist in database', 500, error.message, 'DATABASE_ERROR')
+      }
+    }
+    
+    return apiError('Failed to remove ticker from watchlist', 500, error instanceof Error ? error.message : error)
   }
-}
+})
