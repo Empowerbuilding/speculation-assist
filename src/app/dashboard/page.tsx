@@ -3,6 +3,18 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { UserMenu } from '@/components/auth/UserMenu'
+import { 
+  LoadingSpinner, 
+  ErrorState, 
+  EmptyState, 
+  NetworkStatus,
+  CardSkeleton,
+  StatCardSkeleton,
+  EmptyIdeasState,
+  EmptyWatchlistState,
+  EmptyActivityState,
+  useLoadingStates
+} from '@/components/ui/LoadingStates'
 import { TrendingUp, Users, Eye, Star, Clock, ArrowRight, Plus, X, ChevronDown, ChevronUp, Bookmark, BookmarkCheck } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
@@ -17,80 +29,89 @@ interface TradingIdea {
 
 function DashboardContent() {
   const { user, profile, loading } = useAuth()
+  const { setLoading, isLoading } = useLoadingStates()
   const [ideas, setIdeas] = useState<TradingIdea[]>([])
-  const [ideasLoading, setIdeasLoading] = useState(true)
   const [ideasError, setIdeasError] = useState('')
   const [expandedIdea, setExpandedIdea] = useState<number | null>(null)
   const [addingToWatchlist, setAddingToWatchlist] = useState<string | null>(null)
   const [watchlistMessage, setWatchlistMessage] = useState('')
   const [watchlist, setWatchlist] = useState<string[]>([])
-  const [watchlistLoading, setWatchlistLoading] = useState(true)
+  const [watchlistError, setWatchlistError] = useState('')
   const [savedIdeas, setSavedIdeas] = useState<number[]>([])
   const [savingIdea, setSavingIdea] = useState<number | null>(null)
   const [savedIdeasCount, setSavedIdeasCount] = useState(0)
 
   console.log('Dashboard - User:', user?.id, 'Profile:', profile?.id, 'Loading:', loading)
 
-  useEffect(() => {
-    const fetchIdeas = async () => {
-      try {
-        const response = await fetch('/api/ideas')
-        const result = await response.json()
-        
-        if (response.ok) {
-          setIdeas(result.data || [])
-        } else {
-          setIdeasError(result.error || 'Failed to fetch ideas')
-        }
-      } catch (err) {
-        setIdeasError('Network error occurred')
-      } finally {
-        setIdeasLoading(false)
+  const fetchIdeas = async () => {
+    setLoading('ideas', true)
+    setIdeasError('')
+    try {
+      const response = await fetch('/api/ideas')
+      const result = await response.json()
+      
+      if (response.ok) {
+        setIdeas(result.data || [])
+      } else {
+        setIdeasError(result.error || 'Failed to fetch ideas')
       }
+    } catch (err) {
+      setIdeasError('Network error occurred')
+    } finally {
+      setLoading('ideas', false)
     }
+  }
 
+  useEffect(() => {
     fetchIdeas()
   }, [])
 
-  useEffect(() => {
-    const fetchWatchlist = async () => {
-      try {
-        const response = await fetch('/api/watchlist')
-        const result = await response.json()
-        
-        if (response.ok && result.data && result.data.length > 0) {
-          // Get all tickers from all watchlists
-          const allTickers = result.data.reduce((acc: string[], watchlist: any) => {
-            return [...acc, ...watchlist.tickers]
-          }, [])
-          setWatchlist([...new Set(allTickers)]) // Remove duplicates
-        }
-      } catch (err) {
-        console.error('Failed to fetch watchlist:', err)
-      } finally {
-        setWatchlistLoading(false)
+  const fetchWatchlist = async () => {
+    setLoading('watchlist', true)
+    setWatchlistError('')
+    try {
+      const response = await fetch('/api/watchlist')
+      const result = await response.json()
+      
+      if (response.ok && result.data && result.data.length > 0) {
+        // Get all tickers from all watchlists
+        const allTickers = result.data.reduce((acc: string[], watchlist: any) => {
+          return [...acc, ...watchlist.tickers]
+        }, [])
+        setWatchlist([...new Set(allTickers)]) // Remove duplicates
+      } else if (!response.ok) {
+        setWatchlistError(result.error || 'Failed to fetch watchlist')
       }
+    } catch (err) {
+      setWatchlistError('Network error occurred')
+    } finally {
+      setLoading('watchlist', false)
     }
+  }
 
+  useEffect(() => {
     fetchWatchlist()
   }, [])
 
-  useEffect(() => {
-    const fetchSavedIdeas = async () => {
-      try {
-        const response = await fetch('/api/ideas/saved')
-        const result = await response.json()
-        
-        if (response.ok && result.data) {
-          const savedIdeaIds = result.data.map((interaction: any) => interaction.idea_id)
-          setSavedIdeas(savedIdeaIds)
-          setSavedIdeasCount(result.data.length)
-        }
-      } catch (err) {
-        console.error('Failed to fetch saved ideas:', err)
+  const fetchSavedIdeas = async () => {
+    setLoading('savedIdeas', true)
+    try {
+      const response = await fetch('/api/ideas/saved')
+      const result = await response.json()
+      
+      if (response.ok && result.data) {
+        const savedIdeaIds = result.data.map((interaction: any) => interaction.idea_id)
+        setSavedIdeas(savedIdeaIds)
+        setSavedIdeasCount(result.data.length)
       }
+    } catch (err) {
+      console.error('Failed to fetch saved ideas:', err)
+    } finally {
+      setLoading('savedIdeas', false)
     }
+  }
 
+  useEffect(() => {
     fetchSavedIdeas()
   }, [])
 
@@ -204,6 +225,9 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Network Status */}
+      <NetworkStatus />
+      
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="container mx-auto px-4 py-4">
@@ -223,47 +247,56 @@ function DashboardContent() {
       <main className="container mx-auto px-4 py-8">
         {/* Stats Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Ideas Viewed</p>
-                <p className="text-2xl font-bold text-gray-900">0</p>
+          {isLoading('savedIdeas') || isLoading('watchlist') ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Ideas Viewed</p>
+                    <p className="text-2xl font-bold text-gray-900">0</p>
+                  </div>
+                  <Eye className="h-8 w-8 text-blue-500" />
+                </div>
               </div>
-              <Eye className="h-8 w-8 text-blue-500" />
-            </div>
-          </div>
 
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Ideas Saved</p>
-                <p className="text-2xl font-bold text-gray-900">{savedIdeasCount}</p>
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Ideas Saved</p>
+                    <p className="text-2xl font-bold text-gray-900">{savedIdeasCount}</p>
+                  </div>
+                  <Star className="h-8 w-8 text-yellow-500" />
+                </div>
               </div>
-              <Star className="h-8 w-8 text-yellow-500" />
-            </div>
-          </div>
 
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Watchlist Items</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {watchlistLoading ? '-' : watchlist.length}
-                </p>
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Watchlist Items</p>
+                    <p className="text-2xl font-bold text-gray-900">{watchlist.length}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-green-500" />
+                </div>
               </div>
-              <TrendingUp className="h-8 w-8 text-green-500" />
-            </div>
-          </div>
 
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Days Active</p>
-                <p className="text-2xl font-bold text-gray-900">1</p>
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Days Active</p>
+                    <p className="text-2xl font-bold text-gray-900">1</p>
+                  </div>
+                  <Clock className="h-8 w-8 text-purple-500" />
+                </div>
               </div>
-              <Clock className="h-8 w-8 text-purple-500" />
-            </div>
-          </div>
+            </>
+          )}
         </div>
 
         {/* Watchlist Message */}
@@ -286,30 +319,21 @@ function DashboardContent() {
             </Link>
           </div>
 
-          {ideasLoading ? (
+          {isLoading('ideas') ? (
             <div className="grid md:grid-cols-3 gap-6">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-white rounded-xl p-6 border border-gray-200 animate-pulse">
-                  <div className="h-6 bg-gray-200 rounded mb-4"></div>
-                  <div className="h-4 bg-gray-200 rounded mb-2"></div>
-                  <div className="h-4 bg-gray-200 rounded mb-4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-                </div>
+                <CardSkeleton key={i} />
               ))}
             </div>
           ) : ideasError ? (
-            <div className="bg-white rounded-xl p-8 border border-gray-200 text-center">
-              <p className="text-red-600 mb-2">Failed to load trading ideas</p>
-              <p className="text-gray-500 text-sm">{ideasError}</p>
-            </div>
+            <ErrorState
+              title="Failed to load trading ideas"
+              message={ideasError}
+              onRetry={fetchIdeas}
+              retryLabel="Retry"
+            />
           ) : ideas.length === 0 ? (
-            <div className="bg-white rounded-xl p-8 border border-gray-200 text-center">
-              <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No trading ideas available</p>
-              <p className="text-sm text-gray-400 mt-2">
-                New ideas are generated daily. Check back soon!
-              </p>
-            </div>
+            <EmptyIdeasState onRefresh={fetchIdeas} />
           ) : (
             <div className="grid md:grid-cols-3 gap-6">
               {ideas.map((idea) => {
@@ -408,19 +432,18 @@ function DashboardContent() {
           <h2 className="text-2xl font-bold text-gray-900 mb-6">My Watchlist</h2>
           
           <div className="bg-white rounded-xl p-6 border border-gray-200">
-            {watchlistLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="h-8 w-8 border border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-                <span className="ml-3 text-gray-500">Loading watchlist...</span>
-              </div>
+            {isLoading('watchlist') ? (
+              <LoadingSpinner message="Loading watchlist..." />
+            ) : watchlistError ? (
+              <ErrorState
+                title="Failed to load watchlist"
+                message={watchlistError}
+                onRetry={fetchWatchlist}
+                retryLabel="Retry"
+                className="border-0 p-0"
+              />
             ) : watchlist.length === 0 ? (
-              <div className="text-center py-8">
-                <Star className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No tickers in your watchlist</p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Click the + button next to any ticker in the trading ideas above to add them to your watchlist!
-                </p>
-              </div>
+              <EmptyWatchlistState />
             ) : (
               <div className="space-y-4">
                 <p className="text-sm text-gray-600 mb-4">
@@ -462,13 +485,7 @@ function DashboardContent() {
         <div className="grid md:grid-cols-2 gap-8">
           <div className="bg-white rounded-xl p-6 border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-            <div className="text-center py-8">
-              <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No recent activity</p>
-              <p className="text-sm text-gray-400 mt-2">
-                Start by viewing some trading ideas!
-              </p>
-            </div>
+            <EmptyActivityState />
           </div>
 
           <div className="bg-white rounded-xl p-6 border border-gray-200">
