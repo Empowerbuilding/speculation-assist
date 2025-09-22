@@ -1,12 +1,23 @@
 import { createBrowserClient } from '@supabase/ssr'
-import serverConfig from './server-config'
+import { config } from './config'
 
 export function createClient() {
-  // Use config with fallback to hardcoded values if env vars fail
-  const supabaseUrl = serverConfig.supabase.url || 'https://ovwmwqiklprhdwuiypax.supabase.co'
-  const supabaseKey = serverConfig.supabase.anonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im92d213cWlrbHByaGR3dWl5cGF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg0MDUwNjcsImV4cCI6MjA3Mzk4MTA2N30.kjnc5Nv5V3CcjmcEW5uEhIAUW_emNzVQa1RAfDFEM2g'
+  // Validate that required environment variables are present
+  if (!config.supabase.url) {
+    throw new Error(
+      'Missing NEXT_PUBLIC_SUPABASE_URL environment variable. ' +
+      'Please add it to your .env.local file or environment configuration.'
+    )
+  }
 
-  return createBrowserClient(supabaseUrl, supabaseKey)
+  if (!config.supabase.anonKey) {
+    throw new Error(
+      'Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable. ' +
+      'Please add it to your .env.local file or environment configuration.'
+    )
+  }
+
+  return createBrowserClient(config.supabase.url, config.supabase.anonKey)
 }
 
 // Helper function to clear all stored auth data
