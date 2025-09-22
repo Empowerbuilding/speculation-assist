@@ -17,7 +17,8 @@
     "next": "15.5.3",
     "openai": "^5.22.0",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "serpapi": "^2.2.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

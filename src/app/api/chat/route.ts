@@ -3,6 +3,7 @@
  * 
  * Required Environment Variables:
  * - OPENAI_API_KEY: Your OpenAI API key
+ * - SERPAPI_KEY: Your SerpApi key for stock research (optional)
  * 
  * Features:
  * - User authentication required
@@ -15,6 +16,7 @@
 
 import { NextRequest } from 'next/server'
 import OpenAI from 'openai'
+// Dynamic import for SerpApi will be used in the function
 import { 
   withAuth, 
   apiSuccess, 
@@ -145,8 +147,8 @@ function checkRateLimit(userId: string): { allowed: boolean; resetTime?: number 
 }
 
 // System prompt builder
-function buildSystemPrompt(tradingContext?: ChatRequest['tradingContext']): string {
-  let basePrompt = `You are an AI trading assistant for SpeculationAssist, a platform that provides daily trading ideas and market analysis. Your role is to help users with:
+function buildSystemPrompt(tradingContext?: ChatRequest['tradingContext'], researchData?: string): string {
+  let basePrompt = `You are an AI trading assistant for SpeculationAssist with real-time research capabilities. Your role is to help users with:
 
 1. Trading ideas and stock analysis
 2. Market insights and trends
@@ -189,6 +191,10 @@ Consider these holdings when providing portfolio advice or suggesting complement
     }
   }
 
+  if (researchData && researchData.length > 0) {
+    basePrompt += `\n\nCurrent Research Information:\n${researchData}\n\nUse this research data to provide detailed, up-to-date analysis and insights.`
+  }
+
   return basePrompt
 }
 
@@ -197,6 +203,51 @@ function sanitizeMessage(message: ChatMessage): ChatMessage {
   return {
     ...message,
     content: message.content.trim().slice(0, 2000) // Limit message length
+  }
+}
+
+// Stock research function using SerpApi
+async function performStockResearch(query: string): Promise<string> {
+  try {
+    if (!process.env.SERPAPI_KEY) {
+      return 'Research functionality not configured.'
+    }
+
+    // Dynamic import to avoid require() in ES modules
+    const { getJson } = await import('serpapi')
+    
+    const searchParams = {
+      engine: 'google',
+      q: `${query} stock company financial information news`,
+      location: "United States",
+      hl: "en",
+      gl: "us",
+      num: 5,
+      api_key: process.env.SERPAPI_KEY
+    }
+    
+    const results = await getJson(searchParams)
+    
+    const organicResults = results.organic_results || []
+    if (organicResults.length === 0) {
+      return `No recent information found for ${query}`
+    }
+
+    interface SearchResult {
+      title: string
+      snippet: string
+    }
+
+    const researchSummary = organicResults
+      .slice(0, 4)
+      .map((result: SearchResult) => `• ${result.title}\n  ${result.snippet}`)
+      .join('\n\n')
+    
+    return `Current research results for ${query}:\n\n${researchSummary}`
+    
+  } catch (error) {
+    console.error('Research failed:', error)
+    return `Unable to research ${query} at this time.`
   }
 }
 
@@ -232,6 +283,27 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     // Sanitize messages
     const sanitizedMessages = messages.map(sanitizeMessage)
 
+    // Detect research requests and perform search if needed
+    const lastMessage = sanitizedMessages[sanitizedMessages.length - 1]
+    const isResearchRequest = /\b(research|look up|tell me about|analyze|what is|find out about)\b/i.test(lastMessage.content)
+    
+    let researchData = ''
+    
+    if (isResearchRequest) {
+      // Extract ticker or company name from user message
+      const tickerMatch = lastMessage.content.match(/\b[A-Z]{2,6}\b/)
+      const companyMatch = lastMessage.content.match(/(?:research|about|analyze)\s+(.+?)(?:\s|$|\?)/i)
+      
+      if (tickerMatch) {
+        console.log(`Researching ticker: ${tickerMatch[0]}`)
+        researchData = await performStockResearch(tickerMatch[0])
+      } else if (companyMatch) {
+        const searchTerm = companyMatch[1].trim()
+        console.log(`Researching company: ${searchTerm}`)
+        researchData = await performStockResearch(searchTerm)
+      }
+    }
+
     // Validate message count
     if (sanitizedMessages.length > 20) {
       return apiError(
@@ -243,7 +315,7 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     }
 
     // Build system prompt
-    const systemPrompt = buildSystemPrompt(tradingContext)
+    const systemPrompt = buildSystemPrompt(tradingContext, researchData)
 
     // Prepare messages for OpenAI
     const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
