@@ -157,12 +157,16 @@ function buildSystemPrompt(tradingContext?: ChatRequest['tradingContext'], resea
 5. Educational content about trading and investing
 
 CRITICAL FINANCIAL DATA GUIDELINES:
-- You do NOT have real-time access to stock prices, market caps, or financial data
-- NEVER provide specific financial figures (prices, market caps, volumes) unless from recent research data
-- When users ask for current prices or financial metrics, ALWAYS state you don't have real-time access
-- If providing any financial data, ALWAYS include timestamp and recommend verification from official sources
-- NEVER guess or provide outdated financial information
-- Always direct users to verify financial data with real-time sources like Yahoo Finance, Bloomberg, or their broker
+- You do NOT have direct real-time access to stock prices, market caps, or financial data
+- When research data is provided to you, you MAY use it but MUST include proper disclaimers
+- If NO research data is provided for financial queries, state you don't have real-time access and direct users to verify with official sources
+- When providing research-based financial data, ALWAYS:
+  * Include the research timestamp if available
+  * State this is from recent research, not guaranteed real-time data
+  * Recommend verification from official sources like Yahoo Finance or Bloomberg
+  * Add disclaimer about data accuracy and timing
+- NEVER guess or provide financial information without research data
+- NEVER present research data as definitively current or guaranteed accurate
 
 General Guidelines:
 - Provide helpful, accurate, and actionable trading insights
@@ -200,7 +204,10 @@ Consider these holdings when providing portfolio advice or suggesting complement
   }
 
   if (researchData && researchData.length > 0) {
-    basePrompt += `\n\nCurrent Research Information:\n${researchData}\n\nIMPORTANT: Use this research data to provide analysis, but ALWAYS:\n1. Include timestamps when discussing financial data\n2. Recommend users verify current prices with real-time sources\n3. Add disclaimers about data accuracy and timing\n4. Never present research data as guaranteed current prices`
+    console.log('DEBUG: Research data being passed to AI:', researchData.substring(0, 200) + '...')
+    basePrompt += `\n\nCurrent Research Information:\n${researchData}\n\nIMPORTANT: You may provide financial data from this research when specifically requested, but ALWAYS:\n1. Include timestamps when discussing financial data\n2. Recommend users verify current prices with real-time sources\n3. Add disclaimers about data accuracy and timing\n4. Never present research data as guaranteed current prices`
+  } else {
+    console.log('DEBUG: No research data available for this query')
   }
 
   return basePrompt
@@ -224,11 +231,16 @@ async function performStockResearch(query: string): Promise<string> {
     // Dynamic import to avoid require() in ES modules
     const { getJson } = await import('serpapi')
     
-    // Enhanced search patterns for better financial data
+    // Comprehensive search patterns for complete financial data coverage
     const financialSearchQueries = [
-      `${query} stock price market cap yahoo finance marketwatch today`,
-      `${query} current price financial data bloomberg reuters`,
-      `${query} shares outstanding market value nasdaq NYSE`
+      `${query} stock price current market cap yahoo finance today`,
+      `${query} financial data bloomberg marketwatch reuters current price`,
+      `${query} shares outstanding market value trading volume nasdaq`,
+      `${query} company profile management team executives ceo`,
+      `${query} earnings revenue dividend yield pe ratio financial metrics`,
+      `${query} stock quote real time price market capitalization finviz`,
+      `${query} investor relations annual report 10-K sec filing`,
+      `${query} analyst rating price target buy sell hold recommendation`
     ]
     
     let allResults: any[] = []
@@ -350,17 +362,52 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     const lastMessage = sanitizedMessages[sanitizedMessages.length - 1]
     const messageContent = lastMessage.content.toLowerCase()
     
-    // Specific financial data patterns that ALWAYS trigger research
+    // Comprehensive financial data patterns that ALWAYS trigger research
     const criticalFinancialPatterns = [
-      /what\s+is\s+.*?market\s+cap/i,
-      /current\s+price\s+of/i,
-      /stock\s+price\s+of/i,
-      /price\s+of\s+.*?stock/i,
-      /market\s+cap\s+of/i,
-      /how\s+much\s+is\s+.*?worth/i,
+      // Market cap queries - all variations
+      /market\s+cap/i,
+      /market\s+capitalization/i,
+      /what.*?market.*?cap/i,
+      /current.*?market.*?cap/i,
+      
+      // Stock price queries - all variations  
+      /stock\s+price/i,
+      /current.*?price/i,
+      /share\s+price/i,
+      /current.*?stock.*?price/i,
+      /what.*?price/i,
+      /price.*?stock/i,
+      /stock.*?trading/i,
+      
+      // Simple pattern matching
+      /^market\s+cap/i,
+      /^stock\s+price/i,
+      /^current\s+price/i,
+      /^price/i,
+      
+      // Financial metrics
       /shares\s+outstanding/i,
-      /market\s+value\s+of/i,
-      /valuation\s+of/i
+      /market\s+value/i,
+      /valuation/i,
+      /worth/i,
+      /trading.*?volume/i,
+      /52.*?week/i,
+      /dividend/i,
+      /earnings/i,
+      /revenue/i,
+      /pe\s+ratio/i,
+      /p\/e/i,
+      
+      // Management and company info
+      /management/i,
+      /ceo/i,
+      /executive/i,
+      /leadership/i,
+      /founder/i,
+      
+      // Catch-all for any financial query with ticker
+      /[A-Z]{2,6}.*?(price|cap|value|worth|trading|earnings|revenue)/i,
+      /(price|cap|value|worth|trading|earnings|revenue).*?[A-Z]{2,6}/i
     ]
     
     // Check for critical financial patterns first
@@ -376,6 +423,7 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
       // Financial metrics (HIGH PRIORITY)
       'current price', 'stock price', 'share price', 'market cap', 'market capitalization', 
       'shares outstanding', 'float', 'volume', 'market value', 'valuation', 'worth',
+      'current', 'price',
       
       // Financial statements
       'revenue', 'earnings', 'profit', 'income', 'sales', 'eps', 'earnings per share',
@@ -488,6 +536,26 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
       }
       
       console.log(`Research data length: ${researchData.length}`)
+    }
+
+    // FAILSAFE: Always research if message contains financial terms + ticker
+    if (!researchData) {
+      const hasFinancialTerms = /price|cap|market|stock|current|trading|value|worth|management|ceo|earnings|revenue|dividend/i.test(messageContent)
+      const hasTicker = /\b[A-Z]{2,6}\b/.test(lastMessage.content)
+      
+      if (hasFinancialTerms && hasTicker) {
+        console.log('FAILSAFE: Financial terms + ticker detected, forcing research')
+        const potentialTickers = lastMessage.content.match(/\b[A-Z]{2,6}\b/g) || []
+        const commonWords = ['THE', 'AND', 'FOR', 'ARE', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'USE', 'MAN', 'NEW', 'NOW', 'WAY', 'MAY', 'SAY', 'EACH', 'WHICH', 'SHE', 'HOW', 'ITS', 'WHO', 'OIL', 'SIT', 'BUT', 'NOT', 'WHAT', 'SOME', 'TIME', 'VERY', 'WHEN', 'MUCH', 'TAKE', 'THEM', 'WELL', 'WERE', 'ALSO', 'MORE', 'OVER', 'SUCH', 'INTO', 'THAN', 'ONLY', 'COME', 'WORK', 'YEAR', 'BACK', 'WANT', 'MADE', 'MOST', 'GOOD', 'MAKE', 'KNOW', 'WILL', 'PART', 'JUST', 'LIKE', 'DONT', 'CANT', 'WONT', 'THIS', 'THAT', 'WITH', 'HAVE', 'FROM', 'THEY', 'BEEN', 'SAID', 'WOULD', 'THERE', 'COULD', 'WHERE', 'THESE', 'THOSE', 'ABOUT', 'AFTER', 'FIRST', 'NEVER', 'OTHER', 'RIGHT', 'THINK', 'BEFORE', 'DURING', 'WHILE', 'SINCE', 'STILL', 'STOCK', 'PRICE']
+        
+        for (const ticker of potentialTickers) {
+          if (!commonWords.includes(ticker.toUpperCase()) && ticker.length >= 2 && ticker.length <= 6) {
+            console.log(`FAILSAFE: Researching ticker: ${ticker}`)
+            researchData = await performStockResearch(ticker)
+            break
+          }
+        }
+      }
     }
 
     // Validate message count
