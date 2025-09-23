@@ -116,7 +116,7 @@ export default function Home() {
                   Welcome back, {user.user_metadata?.first_name || user.email}!
                 </h3>
                 <p className="text-gray-600 mb-4">
-                  Ready to explore today's trading opportunities?
+                  Ready to explore today&apos;s trading opportunities?
                 </p>
                 <button 
                   onClick={() => window.location.href = '/dashboard'}

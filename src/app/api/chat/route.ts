@@ -218,11 +218,11 @@ async function performStockResearch(query: string): Promise<string> {
     
     const searchParams = {
       engine: 'google',
-      q: `${query} stock company financial information news`,
+      q: `${query} stock price today current market cap yahoo finance`,
       location: "United States",
       hl: "en",
       gl: "us",
-      num: 5,
+      num: 10, // Get more results for better data
       api_key: process.env.SERPAPI_KEY
     }
     
@@ -243,7 +243,7 @@ async function performStockResearch(query: string): Promise<string> {
       .map((result: SearchResult) => `• ${result.title}\n  ${result.snippet}`)
       .join('\n\n')
     
-    return `Current research results for ${query}:\n\n${researchSummary}`
+    return `Current research results for ${query} (Note: Please verify prices with real-time sources):\n\n${researchSummary}`
     
   } catch (error) {
     console.error('Research failed:', error)
@@ -283,25 +283,99 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     // Sanitize messages
     const sanitizedMessages = messages.map(sanitizeMessage)
 
-    // Detect research requests and perform search if needed
+    // Comprehensive research detection for stock-related queries
     const lastMessage = sanitizedMessages[sanitizedMessages.length - 1]
-    const isResearchRequest = /\b(research|look up|tell me about|analyze|what is|find out about)\b/i.test(lastMessage.content)
+    const researchKeywords = [
+      // Basic research terms
+      'research', 'look up', 'tell me about', 'analyze', 'what is', 'find out about', 'information',
+      
+      // Financial metrics
+      'current price', 'stock price', 'share price', 'market cap', 'market capitalization', 
+      'shares outstanding', 'float', 'volume', 'market value', 'valuation',
+      
+      // Financial statements
+      'revenue', 'earnings', 'profit', 'income', 'sales', 'eps', 'earnings per share',
+      'cash flow', 'debt', 'balance sheet', 'assets', 'liabilities', 'book value',
+      
+      // Performance metrics
+      'pe ratio', 'p/e', 'price to earnings', 'dividend', 'dividend yield', 'growth',
+      'return on equity', 'roe', 'margins', 'profit margin', 'gross margin',
+      
+      // News and events
+      'latest news', 'recent news', 'press release', 'announcement', 'filing',
+      'sec filing', '10-k', '10-q', 'quarterly report', 'annual report',
+      
+      // Trading info
+      '52 week high', '52 week low', 'all time high', 'all time low', 'beta',
+      'volatility', 'moving average', 'support', 'resistance', 'chart',
+      
+      // Company info
+      'ceo', 'headquarters', 'employees', 'founded', 'sector', 'industry',
+      'competitors', 'business model', 'products', 'services',
+      
+      // Investment terms
+      'buy rating', 'sell rating', 'analyst rating', 'price target', 'upgrade',
+      'downgrade', 'recommendation', 'forecast', 'guidance', 'outlook',
+      
+      // Additional query terms
+      'could', 'would', 'might', 'potential', 'benefit', 'gain', 'exposed', 'part of', 'involved in'
+    ]
+    
+    const isResearchRequest = researchKeywords.some(keyword => 
+      lastMessage.content.toLowerCase().includes(keyword.toLowerCase())
+    )
     
     let researchData = ''
     
+    // Add debug logging
+    console.log(`Message: "${lastMessage.content}"`)
+    console.log(`Research request detected: ${isResearchRequest}`)
+    
     if (isResearchRequest) {
-      // Extract ticker or company name from user message
-      const tickerMatch = lastMessage.content.match(/\b[A-Z]{2,6}\b/)
-      const companyMatch = lastMessage.content.match(/(?:research|about|analyze)\s+(.+?)(?:\s|$|\?)/i)
+      console.log('Triggering research...')
       
+      // Enhanced ticker extraction - look for any ticker in the message first
+      const tickerMatch = lastMessage.content.match(/\b[A-Z]{2,6}\b/g)
+      let primaryTicker = null
+      
+      // Filter out common words that aren't tickers
       if (tickerMatch) {
-        console.log(`Researching ticker: ${tickerMatch[0]}`)
-        researchData = await performStockResearch(tickerMatch[0])
-      } else if (companyMatch) {
-        const searchTerm = companyMatch[1].trim()
-        console.log(`Researching company: ${searchTerm}`)
-        researchData = await performStockResearch(searchTerm)
+        const commonWords = ['THE', 'AND', 'FOR', 'ARE', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'USE', 'MAN', 'NEW', 'NOW', 'WAY', 'MAY', 'SAY', 'EACH', 'WHICH', 'SHE', 'HOW', 'ITS', 'WHO', 'OIL', 'SIT', 'BUT', 'NOT', 'WHAT', 'SOME', 'TIME', 'VERY', 'WHEN', 'MUCH', 'TAKE', 'THEM', 'WELL', 'WERE', 'ALSO', 'MORE', 'OVER', 'SUCH', 'INTO', 'THAN', 'ONLY', 'COME', 'WORK', 'YEAR', 'BACK', 'WANT', 'MADE', 'MOST', 'GOOD', 'MAKE', 'KNOW', 'WILL', 'PART', 'JUST', 'LIKE', 'DONT', 'CANT', 'WONT', 'THIS', 'THAT', 'WITH', 'HAVE', 'FROM', 'THEY', 'BEEN', 'SAID', 'WOULD', 'THERE', 'COULD', 'WHERE', 'THESE', 'THOSE', 'ABOUT', 'AFTER', 'FIRST', 'NEVER', 'OTHER', 'RIGHT', 'THINK', 'BEFORE', 'DURING', 'WHILE', 'SINCE', 'STILL', 'STOCK', 'PRICE', 'POLA']
+        
+        primaryTicker = tickerMatch.find(ticker => 
+          !commonWords.includes(ticker.toUpperCase()) && 
+          ticker.length >= 2 && 
+          ticker.length <= 6
+        )
       }
+      
+      if (primaryTicker) {
+        console.log(`Researching ticker: ${primaryTicker}`)
+        researchData = await performStockResearch(primaryTicker)
+      } else {
+        // Fallback: try to extract company name after common phrases
+        const companyPatterns = [
+          /(?:tell me about|analyze|research|information (?:on|about))\s+(.+?)(?:\s|$|\?)/i,
+          /(?:what is|find out about)\s+(?:the\s+)?(.+?)(?:\s|$|\?)/i,
+          /(?:current price|market cap|shares outstanding).*?(?:of|for)\s+(.+?)(?:\s|$|\?)/i,
+          /(?:could|would)\s+(?:the\s+)?(?:stock\s+)?([A-Z]{2,6})\s+/i,
+          /(?:stock\s+)([A-Z]{2,6})\s+/i
+        ]
+        
+        for (const pattern of companyPatterns) {
+          const match = lastMessage.content.match(pattern)
+          if (match) {
+            let searchTerm = match[1].trim()
+            // Clean up the search term
+            searchTerm = searchTerm.replace(/\s+(stock|ticker|symbol)$/i, '')
+            console.log(`Researching company: ${searchTerm}`)
+            researchData = await performStockResearch(searchTerm)
+            break
+          }
+        }
+      }
+      
+      console.log(`Research data length: ${researchData.length}`)
     }
 
     // Validate message count

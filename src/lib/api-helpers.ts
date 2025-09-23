@@ -3,14 +3,14 @@ import { createClient } from '@/lib/supabase-server'
 import { User } from '@supabase/supabase-js'
 
 // Standard API response types
-export interface ApiSuccessResponse<T = any> {
+export interface ApiSuccessResponse<T = unknown> {
   data: T
   message?: string
 }
 
 export interface ApiErrorResponse {
   error: string
-  details?: any
+  details?: unknown
   code?: string
 }
 
@@ -26,7 +26,7 @@ export function apiSuccess<T>(data: T, message?: string, status: number = 200): 
 export function apiError(
   error: string, 
   status: number = 500, 
-  details?: any, 
+  details?: unknown, 
   code?: string
 ): NextResponse {
   const response: ApiErrorResponse = { error }
@@ -39,7 +39,7 @@ export function apiError(
 }
 
 // Authentication wrapper
-export function withAuth<T extends any[]>(
+export function withAuth<T extends unknown[]>(
   handler: (user: User, ...args: T) => Promise<NextResponse>
 ) {
   return async (...args: T): Promise<NextResponse> => {
@@ -67,7 +67,7 @@ export function withAuth<T extends any[]>(
 // Request body validation helper
 export async function validateBody<T>(
   request: NextRequest,
-  validator: (body: any) => body is T,
+  validator: (body: unknown) => body is T,
   errorMessage: string = 'Invalid request body'
 ): Promise<{ success: true; data: T } | { success: false; response: NextResponse }> {
   try {
@@ -129,16 +129,16 @@ export async function withRetry<T>(
 
 // Common validation functions
 export const validators = {
-  isString: (value: any): value is string => typeof value === 'string',
-  isNumber: (value: any): value is number => typeof value === 'number',
-  isBoolean: (value: any): value is boolean => typeof value === 'boolean',
-  isObject: (value: any): value is object => typeof value === 'object' && value !== null && !Array.isArray(value),
-  isArray: (value: any): value is any[] => Array.isArray(value),
-  isEmail: (value: any): value is string => 
+  isString: (value: unknown): value is string => typeof value === 'string',
+  isNumber: (value: unknown): value is number => typeof value === 'number',
+  isBoolean: (value: unknown): value is boolean => typeof value === 'boolean',
+  isObject: (value: unknown): value is object => typeof value === 'object' && value !== null && !Array.isArray(value),
+  isArray: (value: unknown): value is unknown[] => Array.isArray(value),
+  isEmail: (value: unknown): value is string => 
     typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
-  hasKeys: <T extends string>(obj: any, keys: T[]): obj is Record<T, any> =>
+  hasKeys: <T extends string>(obj: unknown, keys: T[]): obj is Record<T, unknown> =>
     typeof obj === 'object' && obj !== null && keys.every(key => key in obj),
-  isNonEmptyString: (value: any): value is string => 
+  isNonEmptyString: (value: unknown): value is string => 
     typeof value === 'string' && value.trim().length > 0
 }
 
@@ -156,11 +156,13 @@ export interface ProfileUpdateRequest {
   }
 }
 
-export function isValidProfileUpdate(body: any): body is ProfileUpdateRequest {
+export function isValidProfileUpdate(body: unknown): body is ProfileUpdateRequest {
   if (!validators.isObject(body)) return false
   
   const validFields = ['first_name', 'last_name', 'display_name', 'avatar_url', 'preferences']
-  const bodyKeys = Object.keys(body)
+  // Cast to Record<string, unknown> after type guard
+  const bodyObj = body as Record<string, unknown>
+  const bodyKeys = Object.keys(bodyObj)
   
   // Check that all keys are valid
   if (!bodyKeys.every(key => validFields.includes(key))) {
@@ -170,16 +172,17 @@ export function isValidProfileUpdate(body: any): body is ProfileUpdateRequest {
   // Validate string fields if present
   const stringFields = ['first_name', 'last_name', 'display_name', 'avatar_url']
   for (const field of stringFields) {
-    if (body[field] !== undefined && !validators.isString(body[field])) {
+    if (bodyObj[field] !== undefined && !validators.isString(bodyObj[field])) {
       return false
     }
   }
   
   // Validate preferences if present
-  if (body.preferences !== undefined) {
-    if (!validators.isObject(body.preferences)) return false
+  if (bodyObj.preferences !== undefined) {
+    if (!validators.isObject(bodyObj.preferences)) return false
     
-    const prefKeys = Object.keys(body.preferences)
+    const preferences = bodyObj.preferences as Record<string, unknown>
+    const prefKeys = Object.keys(preferences)
     const validPrefKeys = ['email_notifications', 'push_notifications', 'marketing_emails', 'daily_digest']
     
     if (!prefKeys.every(key => validPrefKeys.includes(key))) {
@@ -187,7 +190,7 @@ export function isValidProfileUpdate(body: any): body is ProfileUpdateRequest {
     }
     
     for (const key of prefKeys) {
-      if (!validators.isBoolean(body.preferences[key])) {
+      if (!validators.isBoolean(preferences[key])) {
         return false
       }
     }
@@ -211,14 +214,16 @@ export interface SaveIdeaRequest {
   notes?: string
 }
 
-export function isValidSaveIdeaRequest(body: any): body is SaveIdeaRequest {
+export function isValidSaveIdeaRequest(body: unknown): body is SaveIdeaRequest {
   if (!validators.isObject(body)) return false
   
-  if (!validators.isNumber(body.idea_id) || body.idea_id <= 0) {
+  const bodyObj = body as Record<string, unknown>
+  
+  if (!validators.isNumber(bodyObj.idea_id) || bodyObj.idea_id <= 0) {
     return false
   }
   
-  if (body.notes !== undefined && !validators.isString(body.notes)) {
+  if (bodyObj.notes !== undefined && !validators.isString(bodyObj.notes)) {
     return false
   }
   
@@ -231,20 +236,22 @@ export interface AddToWatchlistRequest {
   watchlist_name?: string
 }
 
-export function isValidWatchlistRequest(body: any): body is AddToWatchlistRequest {
+export function isValidWatchlistRequest(body: unknown): body is AddToWatchlistRequest {
   if (!validators.isObject(body)) return false
   
-  if (!validators.isNonEmptyString(body.ticker)) {
+  const bodyObj = body as Record<string, unknown>
+  
+  if (!validators.isNonEmptyString(bodyObj.ticker)) {
     return false
   }
   
   // Validate ticker format (basic stock ticker validation)
   const tickerRegex = /^[A-Za-z]{1,5}$/
-  if (!tickerRegex.test(body.ticker.trim())) {
+  if (!tickerRegex.test((bodyObj.ticker as string).trim())) {
     return false
   }
   
-  if (body.watchlist_name !== undefined && !validators.isNonEmptyString(body.watchlist_name)) {
+  if (bodyObj.watchlist_name !== undefined && !validators.isNonEmptyString(bodyObj.watchlist_name)) {
     return false
   }
   
@@ -256,10 +263,12 @@ export interface SubscribeRequest {
   email: string
 }
 
-export function isValidSubscribeRequest(body: any): body is SubscribeRequest {
+export function isValidSubscribeRequest(body: unknown): body is SubscribeRequest {
   if (!validators.isObject(body)) return false
   
-  if (!validators.isEmail(body.email)) {
+  const bodyObj = body as Record<string, unknown>
+  
+  if (!validators.isEmail(bodyObj.email)) {
     return false
   }
   

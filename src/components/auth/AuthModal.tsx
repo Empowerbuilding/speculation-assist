@@ -283,7 +283,7 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'signin' }: A
               >
                 Forgot password?
               </button>
-              <span className="text-gray-500">Don't have an account? </span>
+              <span className="text-gray-500">Don&apos;t have an account? </span>
               <button
                 onClick={() => setMode('signup')}
                 className="text-green-600 hover:text-green-700 font-medium"

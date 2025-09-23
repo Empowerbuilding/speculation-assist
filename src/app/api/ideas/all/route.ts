@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase-server'
 import { apiSuccess, apiError, withRetry, TradingIdea } from '@/lib/api-helpers'
 
 // Function to parse combined trading ideas from a single database row
-function parseCombinedIdeas(combinedData: any): TradingIdea[] {
+function parseCombinedIdeas(combinedData: { id: number; created_at: string; analysis: string; tickers: string }): TradingIdea[] {
   const { id, created_at, analysis, tickers } = combinedData
   
   // Split analysis by "---" separator
@@ -64,7 +64,7 @@ function parseCombinedIdeas(combinedData: any): TradingIdea[] {
 
 export async function GET() {
   try {
-    let ideas: any[] | null = null
+    let ideas: { id: number; created_at: string; analysis: string; tickers: string }[] | null = null
 
     // Wrap database operation with retry logic
     try {

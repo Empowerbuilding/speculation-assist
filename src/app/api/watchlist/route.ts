@@ -199,7 +199,7 @@ export const DELETE = withAuth(async (user: User, request: NextRequest) => {
         }
 
         // Remove ticker from watchlist
-        const updatedTickers = watchlist.tickers.filter(t => t !== tickerUpper)
+        const updatedTickers = watchlist.tickers.filter((t: string) => t !== tickerUpper)
         
         const { data: updatedWatchlist, error: updateError } = await supabase
           .from('user_watchlists')

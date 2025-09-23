@@ -53,7 +53,7 @@ function IdeasContent() {
         const result = await response.json()
         
         if (response.ok && result.data) {
-          const savedIdeaIds = result.data.map((interaction: any) => interaction.idea_id)
+          const savedIdeaIds = result.data.map((interaction: { idea_id: number }) => interaction.idea_id)
           setSavedIdeas(savedIdeaIds)
         }
       } catch (err) {

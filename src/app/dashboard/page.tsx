@@ -3,33 +3,22 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 import { UserMenu } from '@/components/auth/UserMenu'
+import Logo from '@/components/Logo'
 import { 
   LoadingSpinner, 
-  ErrorState, 
-  EmptyState, 
   NetworkStatus,
-  CardSkeleton,
-  StatCardSkeleton,
-  EmptyIdeasState,
-  EmptyWatchlistState,
-  EmptyActivityState,
   useLoadingStates
 } from '@/components/ui/LoadingStates'
 import { 
   TrendingUp, 
-  Users, 
   Eye, 
   Star, 
   Clock, 
-  ArrowRight, 
-  Plus, 
   X, 
   ChevronDown, 
-  ChevronUp, 
   Bookmark, 
   BookmarkCheck,
   Send,
-  Menu,
   MessageCircle,
   BarChart3,
   PanelLeftClose,
@@ -67,7 +56,7 @@ function useChatState() {
     if (savedMessages) {
       try {
         const parsed = JSON.parse(savedMessages)
-        const messagesWithDates = parsed.map((msg: any) => ({
+        const messagesWithDates = parsed.map((msg: { id: string; role: string; content: string; timestamp: string; typing?: boolean }) => ({
           ...msg,
           timestamp: new Date(msg.timestamp)
         }))
@@ -148,7 +137,7 @@ function useChatState() {
         // Handle API errors gracefully
         setIsTyping(false)
         updateMessage(typingId, {
-          content: result.error || `I'm sorry, I'm having trouble connecting to my AI service right now. ${selectedIdea ? `However, I can tell you that the trading idea "${selectedIdea.theme}" focuses on ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again later.'}`,
+          content: result.error || `I&apos;m sorry, I&apos;m having trouble connecting to my AI service right now. ${selectedIdea ? `However, I can tell you that the trading idea &quot;${selectedIdea.theme}&quot; focuses on ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again later.'}`,
           typing: false
         })
       }
@@ -157,7 +146,7 @@ function useChatState() {
       // Fallback response
       setIsTyping(false)
       updateMessage(typingId, {
-        content: `I'm experiencing connection issues right now. ${selectedIdea ? `In the meantime, you can review the "${selectedIdea.theme}" trading idea which involves ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again in a moment.'}`,
+        content: `I&apos;m experiencing connection issues right now. ${selectedIdea ? `In the meantime, you can review the &quot;${selectedIdea.theme}&quot; trading idea which involves ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again in a moment.'}`,
         typing: false
       })
     }
@@ -176,7 +165,7 @@ function useChatState() {
     setTimeout(() => {
       addMessage({
         role: 'assistant',
-        content: `Great! I'm now focused on the "${idea.theme}" trading idea. This idea involves ${idea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}. 
+        content: `Great! I&apos;m now focused on the &quot;${idea.theme}&quot; trading idea. This idea involves ${idea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]&quot;]/g, '')).join(', ')}. 
 
 What would you like to know about this trading opportunity? I can help you understand the analysis, discuss the risks, or explore how it might fit into your portfolio.`
       })
@@ -190,7 +179,7 @@ What would you like to know about this trading opportunity? I can help you under
     setTimeout(() => {
       addMessage({
         role: 'assistant',
-        content: `I'm back to general trading assistance mode! Feel free to ask me about market trends, your watchlist, or select a specific trading idea to discuss in detail.`
+        content: `I&apos;m back to general trading assistance mode! Feel free to ask me about market trends, your watchlist, or select a specific trading idea to discuss in detail.`
       })
     }, 100)
   }
@@ -215,7 +204,7 @@ function DashboardContent() {
   const [ideas, setIdeas] = useState<TradingIdea[]>([])
   const [ideasError, setIdeasError] = useState('')
   const [expandedIdea, setExpandedIdea] = useState<number | null>(null)
-  const [addingToWatchlist, setAddingToWatchlist] = useState<string | null>(null)
+  const [, setAddingToWatchlist] = useState<string | null>(null)
   const [watchlistMessage, setWatchlistMessage] = useState('')
   const [watchlist, setWatchlist] = useState<string[]>([])
   const [watchlistError, setWatchlistError] = useState('')
@@ -249,7 +238,7 @@ function DashboardContent() {
       } else {
         setIdeasError(result.error || 'Failed to fetch ideas')
       }
-    } catch (err) {
+    } catch {
       setIdeasError('Network error occurred')
     } finally {
       setLoading('ideas', false)
@@ -269,14 +258,14 @@ function DashboardContent() {
       
       if (response.ok && result.data && result.data.length > 0) {
         // Get all tickers from all watchlists
-        const allTickers = result.data.reduce((acc: string[], watchlist: any) => {
+        const allTickers = result.data.reduce((acc: string[], watchlist: { tickers: string[] }) => {
           return [...acc, ...(watchlist.tickers as string[])]
         }, [] as string[])
         setWatchlist(Array.from(new Set(allTickers))) // Remove duplicates
       } else if (!response.ok) {
         setWatchlistError(result.error || 'Failed to fetch watchlist')
       }
-    } catch (err) {
+    } catch {
       setWatchlistError('Network error occurred')
     } finally {
       setLoading('watchlist', false)
@@ -294,7 +283,7 @@ function DashboardContent() {
       const result = await response.json()
       
       if (response.ok && result.data) {
-        const savedIdeaIds = result.data.map((interaction: any) => interaction.idea_id)
+        const savedIdeaIds = result.data.map((interaction: { idea_id: number }) => interaction.idea_id)
         setSavedIdeas(savedIdeaIds)
         setSavedIdeasCount(result.data.length)
       }
@@ -349,7 +338,7 @@ function DashboardContent() {
         setWatchlistMessage(result.error || 'Failed to add to watchlist')
         setTimeout(() => setWatchlistMessage(''), 5000)
       }
-    } catch (err) {
+    } catch {
       setWatchlistMessage('Network error occurred')
       setTimeout(() => setWatchlistMessage(''), 5000)
     } finally {
@@ -407,7 +396,7 @@ function DashboardContent() {
           setTimeout(() => setWatchlistMessage(''), 5000)
         }
       }
-    } catch (err) {
+    } catch {
       setWatchlistMessage('Network error occurred')
       setTimeout(() => setWatchlistMessage(''), 5000)
     } finally {
@@ -433,7 +422,7 @@ function DashboardContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-white flex">
       {/* Network Status */}
       <NetworkStatus />
       
@@ -441,9 +430,9 @@ function DashboardContent() {
       <div className={`${sidebarOpen ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden bg-white border-r border-gray-200 flex flex-col`}>
         {/* Sidebar Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-blue-600" />
-            <h2 className="font-semibold text-gray-900">Trading Hub</h2>
+          <div className="flex items-center gap-3">
+            <Logo size="sm" />
+            <h2 className="font-semibold text-gray-900">SpeculationAssist</h2>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -532,7 +521,7 @@ function DashboardContent() {
             >
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-gray-600" />
-                <span className="font-medium">Today's Ideas</span>
+                <span className="font-medium">Today&apos;s Ideas</span>
               </div>
               <ChevronDown className={`h-4 w-4 transition-transform ${activePanel === 'ideas' ? 'rotate-180' : ''}`} />
             </button>
@@ -614,11 +603,11 @@ function DashboardContent() {
                           </div>
                           <button
                             onClick={() => chat.selectIdea(idea)}
-                            className={`w-full text-xs font-medium py-1.5 px-2 rounded transition-colors ${
-                              isSelected
-                                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200'
-                            }`}
+                          className={`w-full text-xs font-medium py-1.5 px-2 rounded transition-colors ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-green-600 to-red-600 text-white hover:from-green-700 hover:to-red-700'
+                              : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200'
+                          }`}
                           >
                             {isSelected ? '✓ Discussing with AI' : '💬 Discuss with AI'}
                           </button>
@@ -721,7 +710,10 @@ function DashboardContent() {
             
             {activePanel === 'activity' && (
               <div className="px-4 pb-4">
-                <EmptyActivityState />
+                <div className="text-center py-8">
+                  <Clock className="h-8 w-8 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500 text-sm">No recent activity</p>
+                </div>
               </div>
             )}
           </div>
@@ -742,34 +734,27 @@ function DashboardContent() {
                   <PanelLeftOpen className="h-5 w-5" />
                 </button>
               )}
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-6 w-6 text-blue-600" />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-xl font-bold text-gray-900">AI Trading Assistant</h1>
-                    {chat.selectedIdea && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">•</span>
-                        <span className="text-blue-600 font-medium text-sm">
-                          🎯 {chat.selectedIdea.theme}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm text-gray-600">
-                      Welcome back, {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}!
-                    </p>
-                    {chat.selectedIdea && (
-                      <div className="flex items-center gap-1">
-                        <span className="text-gray-400">•</span>
-                        <span className="text-xs text-blue-600">
-                          {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-lg font-medium text-gray-900">
+                    Welcome back, {profile?.display_name || profile?.first_name || user.user_metadata?.first_name || user.email}!
+                  </p>
+                  {chat.selectedIdea && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400">•</span>
+                      <span className="text-blue-600 font-medium text-sm">
+                        🎯 {chat.selectedIdea.theme}
+                      </span>
+                    </div>
+                  )}
                 </div>
+                {chat.selectedIdea && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="text-xs text-blue-600">
+                      {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -793,7 +778,7 @@ function DashboardContent() {
         </header>
 
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30">
           {chat.messages.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center max-w-md">
@@ -806,7 +791,7 @@ function DashboardContent() {
                       Discussing: {chat.selectedIdea.theme}
                     </h3>
                     <p className="text-gray-600 mb-4">
-                      I'm focused on this trading idea involving {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]"]/g, '')).join(', ')}.
+                      I&apos;m focused on this trading idea involving {chat.selectedIdea.tickers.split(',').slice(0, 3).map(t => t.trim().replace(/[\[\]&quot;]/g, '')).join(', ')}.
                     </p>
                     <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
                       <p className="text-sm text-gray-700 line-clamp-3">
@@ -820,19 +805,19 @@ function DashboardContent() {
                           onClick={() => chat.sendMessage("What are the key risks with this trading idea?", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "What are the key risks with this idea?"
+                          &quot;What are the key risks with this idea?&quot;
                         </button>
                         <button
                           onClick={() => chat.sendMessage("How does this fit into a diversified portfolio?", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "How does this fit into my portfolio?"
+                          &quot;How does this fit into my portfolio?&quot;
                         </button>
                         <button
                           onClick={() => chat.sendMessage("What's the best entry strategy for this idea?", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "What's the best entry strategy?"
+                          &quot;What&apos;s the best entry strategy?&quot;
                         </button>
                       </div>
                     </div>
@@ -851,19 +836,19 @@ function DashboardContent() {
                           onClick={() => chat.sendMessage("What are some good trading ideas for today?", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "What are some good trading ideas for today?"
+                          &quot;What are some good trading ideas for today?&quot;
                         </button>
                         <button
                           onClick={() => chat.sendMessage("How is the market performing?", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "How is the market performing?"
+                          &quot;How is the market performing?&quot;
                         </button>
                         <button
                           onClick={() => chat.sendMessage("Help me analyze my watchlist", watchlist)}
                           className="block w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                         >
-                          "Help me analyze my watchlist"
+                          &quot;Help me analyze my watchlist&quot;
                         </button>
                       </div>
                     </div>
@@ -928,7 +913,7 @@ function DashboardContent() {
             <button
               type="submit"
               disabled={!chat.input.trim() || chat.isTyping}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 bg-gradient-to-r from-green-600 to-red-600 hover:from-green-700 hover:to-red-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="h-4 w-4" />
             </button>

@@ -103,7 +103,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       try {
         queryResult = await withTimeout(
-          query as unknown as Promise<any>,
+          query as unknown as Promise<{
+            data: { 
+              id: string; 
+              email: string; 
+              display_name?: string; 
+              subscription_status?: string; 
+              created_at: string;
+              first_name?: string;
+              last_name?: string;
+              avatar_url?: string;
+            } | null; 
+            error: { message: string; code?: string; details?: string; hint?: string } | null; 
+            status: number; 
+            statusText: string 
+          }>,
           5000, // 5 second timeout
           'Profile query exceeded 5 second timeout'
         )
@@ -125,7 +139,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       
-      const { data, error, status, statusText } = queryResult as any
+      const { data, error, status, statusText } = queryResult as { 
+        data: { 
+          id: string; 
+          email: string; 
+          display_name?: string; 
+          subscription_status?: string; 
+          created_at: string;
+          first_name?: string;
+          last_name?: string;
+          avatar_url?: string;
+        } | null; 
+        error: { message: string; code?: string; details?: string; hint?: string } | null; 
+        status: number; 
+        statusText: string 
+      }
       const endTime = Date.now()
       const duration = endTime - startTime
 
@@ -279,7 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.error('❌ [SIGNOUT] - Error object:', supabaseSignOutResult.error)
             console.error('❌ [SIGNOUT] - Error status:', supabaseSignOutResult.error.status)
             console.error('❌ [SIGNOUT] - Error code:', supabaseSignOutResult.error.code)
-            console.error('❌ [SIGNOUT] - Error details:', (supabaseSignOutResult.error as any).details)
+            console.error('❌ [SIGNOUT] - Error details:', (supabaseSignOutResult.error as { details?: unknown }).details)
           }
         } else if (DEBUG_AUTH) {
           console.log('✅ [SIGNOUT] Supabase signOut completed successfully')
