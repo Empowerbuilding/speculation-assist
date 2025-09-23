@@ -148,7 +148,7 @@ function checkRateLimit(userId: string): { allowed: boolean; resetTime?: number 
 
 // System prompt builder
 function buildSystemPrompt(tradingContext?: ChatRequest['tradingContext'], researchData?: string): string {
-  let basePrompt = `You are an AI trading assistant for SpeculationAssist with real-time research capabilities. Your role is to help users with:
+  let basePrompt = `You are an AI trading assistant for SpeculationAssist with research capabilities. Your role is to help users with:
 
 1. Trading ideas and stock analysis
 2. Market insights and trends
@@ -156,7 +156,15 @@ function buildSystemPrompt(tradingContext?: ChatRequest['tradingContext'], resea
 4. Risk management and investment strategies
 5. Educational content about trading and investing
 
-Guidelines:
+CRITICAL FINANCIAL DATA GUIDELINES:
+- You do NOT have real-time access to stock prices, market caps, or financial data
+- NEVER provide specific financial figures (prices, market caps, volumes) unless from recent research data
+- When users ask for current prices or financial metrics, ALWAYS state you don't have real-time access
+- If providing any financial data, ALWAYS include timestamp and recommend verification from official sources
+- NEVER guess or provide outdated financial information
+- Always direct users to verify financial data with real-time sources like Yahoo Finance, Bloomberg, or their broker
+
+General Guidelines:
 - Provide helpful, accurate, and actionable trading insights
 - Always include appropriate risk disclaimers
 - Be conversational but professional
@@ -192,7 +200,7 @@ Consider these holdings when providing portfolio advice or suggesting complement
   }
 
   if (researchData && researchData.length > 0) {
-    basePrompt += `\n\nCurrent Research Information:\n${researchData}\n\nUse this research data to provide detailed, up-to-date analysis and insights.`
+    basePrompt += `\n\nCurrent Research Information:\n${researchData}\n\nIMPORTANT: Use this research data to provide analysis, but ALWAYS:\n1. Include timestamps when discussing financial data\n2. Recommend users verify current prices with real-time sources\n3. Add disclaimers about data accuracy and timing\n4. Never present research data as guaranteed current prices`
   }
 
   return basePrompt
@@ -206,48 +214,103 @@ function sanitizeMessage(message: ChatMessage): ChatMessage {
   }
 }
 
-// Stock research function using SerpApi
+// Enhanced stock research function using SerpApi
 async function performStockResearch(query: string): Promise<string> {
   try {
     if (!process.env.SERPAPI_KEY) {
-      return 'Research functionality not configured.'
+      return 'Research functionality not configured. Please verify financial data with real-time sources like Yahoo Finance or your broker.'
     }
 
     // Dynamic import to avoid require() in ES modules
     const { getJson } = await import('serpapi')
     
-    const searchParams = {
-      engine: 'google',
-      q: `${query} stock price today current market cap yahoo finance`,
-      location: "United States",
-      hl: "en",
-      gl: "us",
-      num: 10, // Get more results for better data
-      api_key: process.env.SERPAPI_KEY
+    // Enhanced search patterns for better financial data
+    const financialSearchQueries = [
+      `${query} stock price market cap yahoo finance marketwatch today`,
+      `${query} current price financial data bloomberg reuters`,
+      `${query} shares outstanding market value nasdaq NYSE`
+    ]
+    
+    let allResults: any[] = []
+    
+    // Try multiple search patterns for better data coverage
+    for (const searchQuery of financialSearchQueries) {
+      try {
+        const searchParams = {
+          engine: 'google',
+          q: searchQuery,
+          location: "United States",
+          hl: "en",
+          gl: "us",
+          num: 8,
+          api_key: process.env.SERPAPI_KEY
+        }
+        
+        const results = await getJson(searchParams)
+        const organicResults = results.organic_results || []
+        
+        // Filter for high-quality financial sources
+        const financialSources = organicResults.filter((result: any) => {
+          const url = result.link?.toLowerCase() || ''
+          const title = result.title?.toLowerCase() || ''
+          return (
+            url.includes('yahoo.com') ||
+            url.includes('marketwatch.com') ||
+            url.includes('bloomberg.com') ||
+            url.includes('reuters.com') ||
+            url.includes('nasdaq.com') ||
+            url.includes('sec.gov') ||
+            url.includes('finviz.com') ||
+            url.includes('morningstar.com') ||
+            title.includes('stock price') ||
+            title.includes('market cap') ||
+            title.includes('financial')
+          )
+        })
+        
+        allResults = [...allResults, ...financialSources]
+        
+        // Break if we have enough quality results
+        if (allResults.length >= 6) break
+        
+        // Add delay between searches to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 500))
+      } catch (searchError) {
+        console.warn(`Search query failed: ${searchQuery}`, searchError)
+        continue
+      }
     }
     
-    const results = await getJson(searchParams)
-    
-    const organicResults = results.organic_results || []
-    if (organicResults.length === 0) {
-      return `No recent information found for ${query}`
+    if (allResults.length === 0) {
+      return `No recent financial information found for ${query}. Please verify current data with real-time sources like Yahoo Finance, Bloomberg, or your broker.`
     }
 
     interface SearchResult {
       title: string
       snippet: string
+      link?: string
     }
 
-    const researchSummary = organicResults
-      .slice(0, 4)
-      .map((result: SearchResult) => `• ${result.title}\n  ${result.snippet}`)
+    // Remove duplicates and get best results
+    const uniqueResults = allResults
+      .filter((result, index, self) => 
+        index === self.findIndex(r => r.title === result.title)
+      )
+      .slice(0, 5)
+    
+    const timestamp = new Date().toISOString()
+    const researchSummary = uniqueResults
+      .map((result: SearchResult) => {
+        const source = result.link ? new URL(result.link).hostname : 'Unknown source'
+        return `• ${result.title}\n  ${result.snippet}\n  Source: ${source}`
+      })
       .join('\n\n')
     
-    return `Current research results for ${query} (Note: Please verify prices with real-time sources):\n\n${researchSummary}`
+    return `Recent research results for ${query} (Timestamp: ${timestamp}):\n\n${researchSummary}\n\n⚠️ IMPORTANT: This data may not be real-time. Always verify current prices and financial metrics with official sources like Yahoo Finance, Bloomberg, or your broker before making investment decisions.`
     
   } catch (error) {
     console.error('Research failed:', error)
-    return `Unable to research ${query} at this time.`
+    return `Unable to research ${query} at this time. Please check current financial data directly with Yahoo Finance, Bloomberg, or your broker.`
   }
 }
 
@@ -283,15 +346,36 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     // Sanitize messages
     const sanitizedMessages = messages.map(sanitizeMessage)
 
-    // Comprehensive research detection for stock-related queries
+    // Enhanced financial query detection with specific patterns
     const lastMessage = sanitizedMessages[sanitizedMessages.length - 1]
+    const messageContent = lastMessage.content.toLowerCase()
+    
+    // Specific financial data patterns that ALWAYS trigger research
+    const criticalFinancialPatterns = [
+      /what\s+is\s+.*?market\s+cap/i,
+      /current\s+price\s+of/i,
+      /stock\s+price\s+of/i,
+      /price\s+of\s+.*?stock/i,
+      /market\s+cap\s+of/i,
+      /how\s+much\s+is\s+.*?worth/i,
+      /shares\s+outstanding/i,
+      /market\s+value\s+of/i,
+      /valuation\s+of/i
+    ]
+    
+    // Check for critical financial patterns first
+    const isCriticalFinancialQuery = criticalFinancialPatterns.some(pattern => 
+      pattern.test(messageContent)
+    )
+    
+    // Comprehensive research keywords
     const researchKeywords = [
       // Basic research terms
       'research', 'look up', 'tell me about', 'analyze', 'what is', 'find out about', 'information',
       
-      // Financial metrics
+      // Financial metrics (HIGH PRIORITY)
       'current price', 'stock price', 'share price', 'market cap', 'market capitalization', 
-      'shares outstanding', 'float', 'volume', 'market value', 'valuation',
+      'shares outstanding', 'float', 'volume', 'market value', 'valuation', 'worth',
       
       // Financial statements
       'revenue', 'earnings', 'profit', 'income', 'sales', 'eps', 'earnings per share',
@@ -321,14 +405,18 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
       'could', 'would', 'might', 'potential', 'benefit', 'gain', 'exposed', 'part of', 'involved in'
     ]
     
-    const isResearchRequest = researchKeywords.some(keyword => 
-      lastMessage.content.toLowerCase().includes(keyword.toLowerCase())
+    const hasResearchKeywords = researchKeywords.some(keyword => 
+      messageContent.includes(keyword.toLowerCase())
     )
+    
+    // Trigger research for critical financial queries OR general research requests
+    const isResearchRequest = isCriticalFinancialQuery || hasResearchKeywords
     
     let researchData = ''
     
     // Add debug logging
     console.log(`Message: "${lastMessage.content}"`)
+    console.log(`Critical financial query: ${isCriticalFinancialQuery}`)
     console.log(`Research request detected: ${isResearchRequest}`)
     
     if (isResearchRequest) {
@@ -340,12 +428,13 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
       
       // Filter out common words that aren't tickers
       if (tickerMatch) {
-        const commonWords = ['THE', 'AND', 'FOR', 'ARE', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'USE', 'MAN', 'NEW', 'NOW', 'WAY', 'MAY', 'SAY', 'EACH', 'WHICH', 'SHE', 'HOW', 'ITS', 'WHO', 'OIL', 'SIT', 'BUT', 'NOT', 'WHAT', 'SOME', 'TIME', 'VERY', 'WHEN', 'MUCH', 'TAKE', 'THEM', 'WELL', 'WERE', 'ALSO', 'MORE', 'OVER', 'SUCH', 'INTO', 'THAN', 'ONLY', 'COME', 'WORK', 'YEAR', 'BACK', 'WANT', 'MADE', 'MOST', 'GOOD', 'MAKE', 'KNOW', 'WILL', 'PART', 'JUST', 'LIKE', 'DONT', 'CANT', 'WONT', 'THIS', 'THAT', 'WITH', 'HAVE', 'FROM', 'THEY', 'BEEN', 'SAID', 'WOULD', 'THERE', 'COULD', 'WHERE', 'THESE', 'THOSE', 'ABOUT', 'AFTER', 'FIRST', 'NEVER', 'OTHER', 'RIGHT', 'THINK', 'BEFORE', 'DURING', 'WHILE', 'SINCE', 'STILL', 'STOCK', 'PRICE', 'POLA']
+        const commonWords = ['THE', 'AND', 'FOR', 'ARE', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'USE', 'MAN', 'NEW', 'NOW', 'WAY', 'MAY', 'SAY', 'EACH', 'WHICH', 'SHE', 'HOW', 'ITS', 'WHO', 'OIL', 'SIT', 'BUT', 'NOT', 'WHAT', 'SOME', 'TIME', 'VERY', 'WHEN', 'MUCH', 'TAKE', 'THEM', 'WELL', 'WERE', 'ALSO', 'MORE', 'OVER', 'SUCH', 'INTO', 'THAN', 'ONLY', 'COME', 'WORK', 'YEAR', 'BACK', 'WANT', 'MADE', 'MOST', 'GOOD', 'MAKE', 'KNOW', 'WILL', 'PART', 'JUST', 'LIKE', 'DONT', 'CANT', 'WONT', 'THIS', 'THAT', 'WITH', 'HAVE', 'FROM', 'THEY', 'BEEN', 'SAID', 'WOULD', 'THERE', 'COULD', 'WHERE', 'THESE', 'THOSE', 'ABOUT', 'AFTER', 'FIRST', 'NEVER', 'OTHER', 'RIGHT', 'THINK', 'BEFORE', 'DURING', 'WHILE', 'SINCE', 'STILL', 'STOCK', 'PRICE', 'POLA', 'WHAT', 'MUCH', 'DOES', 'HAVE', 'MANY']
         
         primaryTicker = tickerMatch.find(ticker => 
           !commonWords.includes(ticker.toUpperCase()) && 
           ticker.length >= 2 && 
-          ticker.length <= 6
+          ticker.length <= 6 &&
+          /^[A-Z]+$/.test(ticker) // Only letters, no numbers
         )
       }
       
@@ -353,13 +442,15 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
         console.log(`Researching ticker: ${primaryTicker}`)
         researchData = await performStockResearch(primaryTicker)
       } else {
-        // Fallback: try to extract company name after common phrases
+        // Enhanced company name extraction patterns
         const companyPatterns = [
           /(?:tell me about|analyze|research|information (?:on|about))\s+(.+?)(?:\s|$|\?)/i,
           /(?:what is|find out about)\s+(?:the\s+)?(.+?)(?:\s|$|\?)/i,
-          /(?:current price|market cap|shares outstanding).*?(?:of|for)\s+(.+?)(?:\s|$|\?)/i,
+          /(?:current price|stock price|market cap|shares outstanding|market value).*?(?:of|for)\s+(.+?)(?:\s|$|\?)/i,
+          /(?:how much is)\s+(.+?)\s+(?:worth|stock)/i,
           /(?:could|would)\s+(?:the\s+)?(?:stock\s+)?([A-Z]{2,6})\s+/i,
-          /(?:stock\s+)([A-Z]{2,6})\s+/i
+          /(?:stock\s+)([A-Z]{2,6})(?:\s|$)/i,
+          /([A-Z]{2,6})\s+(?:stock|price|market cap)/i
         ]
         
         for (const pattern of companyPatterns) {
@@ -367,10 +458,31 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
           if (match) {
             let searchTerm = match[1].trim()
             // Clean up the search term
-            searchTerm = searchTerm.replace(/\s+(stock|ticker|symbol)$/i, '')
-            console.log(`Researching company: ${searchTerm}`)
-            researchData = await performStockResearch(searchTerm)
-            break
+            searchTerm = searchTerm.replace(/\s+(stock|ticker|symbol|company|corporation|inc|corp|ltd)$/i, '')
+            searchTerm = searchTerm.replace(/^(the|a|an)\s+/i, '')
+            
+            if (searchTerm.length >= 2) {
+              console.log(`Researching company/ticker: ${searchTerm}`)
+              researchData = await performStockResearch(searchTerm)
+              break
+            }
+          }
+        }
+        
+        // If still no results, try extracting any potential ticker or company name
+        if (!researchData && isCriticalFinancialQuery) {
+          const commonWords = ['THE', 'AND', 'FOR', 'ARE', 'YOU', 'ALL', 'CAN', 'HAD', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'USE', 'MAN', 'NEW', 'NOW', 'WAY', 'MAY', 'SAY', 'EACH', 'WHICH', 'SHE', 'HOW', 'ITS', 'WHO', 'OIL', 'SIT', 'BUT', 'NOT', 'WHAT', 'SOME', 'TIME', 'VERY', 'WHEN', 'MUCH', 'TAKE', 'THEM', 'WELL', 'WERE', 'ALSO', 'MORE', 'OVER', 'SUCH', 'INTO', 'THAN', 'ONLY', 'COME', 'WORK', 'YEAR', 'BACK', 'WANT', 'MADE', 'MOST', 'GOOD', 'MAKE', 'KNOW', 'WILL', 'PART', 'JUST', 'LIKE', 'DONT', 'CANT', 'WONT', 'THIS', 'THAT', 'WITH', 'HAVE', 'FROM', 'THEY', 'BEEN', 'SAID', 'WOULD', 'THERE', 'COULD', 'WHERE', 'THESE', 'THOSE', 'ABOUT', 'AFTER', 'FIRST', 'NEVER', 'OTHER', 'RIGHT', 'THINK', 'BEFORE', 'DURING', 'WHILE', 'SINCE', 'STILL', 'STOCK', 'PRICE', 'POLA', 'WHAT', 'MUCH', 'DOES', 'HAVE', 'MANY']
+          const words = lastMessage.content.split(/\s+/)
+          for (const word of words) {
+            const cleanWord = word.replace(/[^A-Za-z]/g, '')
+            if (cleanWord.length >= 2 && cleanWord.length <= 6 && /^[A-Z]+$/i.test(cleanWord)) {
+              const upperWord = cleanWord.toUpperCase()
+              if (!commonWords.includes(upperWord)) {
+                console.log(`Fallback research for potential ticker: ${upperWord}`)
+                researchData = await performStockResearch(upperWord)
+                break
+              }
+            }
           }
         }
       }
