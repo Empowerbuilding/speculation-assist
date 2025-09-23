@@ -125,10 +125,28 @@ function useChatState() {
 
       const result = await response.json()
 
-      if (response.ok && result.data?.message?.content) {
+      if (response.ok) {
+        // Handle N8N agent response format
+        let agentResponse = '';
+        if (result.data?.message?.content) {
+          // Legacy OpenAI format support
+          agentResponse = result.data.message.content;
+        } else if (result.data?.response) {
+          // N8N structured response
+          agentResponse = result.data.response;
+        } else if (typeof result.data === 'string') {
+          // N8N plain text response
+          agentResponse = result.data;
+        } else if (result.response) {
+          // Direct response field
+          agentResponse = result.response;
+        } else {
+          throw new Error('Unexpected response format from agent');
+        }
+
         setIsTyping(false)
         updateMessage(typingId, {
-          content: result.data.message.content,
+          content: agentResponse,
           typing: false
         })
       } else {

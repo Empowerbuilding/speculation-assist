@@ -34,7 +34,7 @@ const RATE_LIMIT = {
 }
 
 // N8N Agent integration
-async function callN8NAgent(userMessage: string, tradingContext: any): Promise<string> {
+async function callN8NAgent(userMessage: string, tradingContext: any): Promise<string | any> {
   try {
     const response = await fetch(process.env.N8N_AGENT_WEBHOOK_URL!, {
       method: 'POST',
@@ -49,7 +49,13 @@ async function callN8NAgent(userMessage: string, tradingContext: any): Promise<s
       throw new Error(`N8N agent responded with status: ${response.status}`)
     }
     
-    return await response.text()
+    // Try to parse as JSON first, fallback to text
+    const contentType = response.headers.get('content-type')
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json()
+    } else {
+      return await response.text()
+    }
   } catch (error) {
     console.error('N8N agent call failed:', error)
     return 'I apologize, but I cannot access current financial data right now. Please try again or check financial websites directly.'
@@ -207,10 +213,21 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
       )
     }
 
-    // Call N8N agent with user message and trading context
-    const agentResponse = await callN8NAgent(lastMessage.content, tradingContext)
-    
-    if (!agentResponse) {
+    // Call N8N agent and normalize response format
+    const rawResponse = await callN8NAgent(lastMessage.content, tradingContext)
+
+    // Handle different N8N response formats
+    let agentContent = '';
+    if (typeof rawResponse === 'string') {
+      agentContent = rawResponse;
+    } else if (rawResponse && typeof rawResponse === 'object') {
+      // Handle structured N8N response
+      agentContent = rawResponse.response || rawResponse.content || rawResponse.message || JSON.stringify(rawResponse);
+    } else {
+      agentContent = 'I apologize, but I received an unexpected response format. Please try again.';
+    }
+
+    if (!agentContent || agentContent.trim() === '') {
       return apiError(
         'Agent service returned an empty response. Please try again.',
         500,
@@ -226,7 +243,7 @@ export const POST = withAuth(async (user: User, request: NextRequest) => {
     return apiSuccess({
       message: {
         role: 'assistant',
-        content: agentResponse,
+        content: agentContent,
         timestamp: new Date().toISOString()
       },
       model: 'n8n-agent'
