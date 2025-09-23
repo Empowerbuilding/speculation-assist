@@ -100,7 +100,7 @@ function useChatState() {
     const typingId = addMessage({ role: 'assistant', content: '', typing: true })
 
     try {
-      // Prepare request body with selected idea context
+      // Prepare request body with selected idea context for N8N agent
       const requestBody = {
         messages: [...messages, { role: 'user' as const, content: content.trim() }],
         tradingContext: {
@@ -111,12 +111,10 @@ function useChatState() {
             tickers: selectedIdea.tickers
           } : undefined,
           watchlist: watchlistData.length > 0 ? watchlistData : undefined,
-        },
-        maxTokens: 500,
-        temperature: 0.7
+        }
       }
 
-      // Call the OpenAI API
+      // Call the N8N Agent API
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -134,19 +132,53 @@ function useChatState() {
           typing: false
         })
       } else {
-        // Handle API errors gracefully
+        // Handle N8N agent errors gracefully
         setIsTyping(false)
+        let errorMessage = result.error || 'I&apos;m sorry, I&apos;m having trouble connecting to my research service right now.'
+        
+        // Handle specific N8N webhook errors
+        if (response.status === 504 || response.status === 408) {
+          errorMessage = 'The request timed out while processing your query. Please try again with a simpler question.'
+        } else if (response.status === 503) {
+          errorMessage = 'The research service is temporarily unavailable. Please try again in a moment.'
+        } else if (result.error?.includes('webhook') || result.error?.includes('N8N')) {
+          errorMessage = 'There was an issue with the research service. Please try again.'
+        }
+        
+        // Add trading idea context if available
+        if (selectedIdea) {
+          errorMessage += ` However, I can tell you that the trading idea &quot;${selectedIdea.theme}&quot; focuses on ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.`
+        } else {
+          errorMessage += ' Please try again later.'
+        }
+        
         updateMessage(typingId, {
-          content: result.error || `I&apos;m sorry, I&apos;m having trouble connecting to my AI service right now. ${selectedIdea ? `However, I can tell you that the trading idea &quot;${selectedIdea.theme}&quot; focuses on ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again later.'}`,
+          content: errorMessage,
           typing: false
         })
       }
     } catch (error) {
-      console.error('Failed to send message to AI:', error)
-      // Fallback response
+      console.error('Failed to send message to N8N agent:', error)
+      // Fallback response for network/connection issues
       setIsTyping(false)
+      let fallbackMessage = 'I&apos;m experiencing connection issues right now.'
+      
+      // Check for specific network errors
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        fallbackMessage = 'Unable to connect to the research service. Please check your internet connection and try again.'
+      } else if (error instanceof Error && error.message.includes('timeout')) {
+        fallbackMessage = 'The request timed out. Please try again with a simpler question.'
+      }
+      
+      // Add trading idea context if available
+      if (selectedIdea) {
+        fallbackMessage += ` In the meantime, you can review the &quot;${selectedIdea.theme}&quot; trading idea which involves ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.`
+      } else {
+        fallbackMessage += ' Please try again in a moment.'
+      }
+      
       updateMessage(typingId, {
-        content: `I&apos;m experiencing connection issues right now. ${selectedIdea ? `In the meantime, you can review the &quot;${selectedIdea.theme}&quot; trading idea which involves ${selectedIdea.tickers.split(',').slice(0, 3).join(', ')}.` : 'Please try again in a moment.'}`,
+        content: fallbackMessage,
         typing: false
       })
     }
